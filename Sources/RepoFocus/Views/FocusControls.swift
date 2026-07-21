@@ -1,3 +1,4 @@
+import AppKit
 import RepoFocusCore
 import SwiftUI
 
@@ -66,6 +67,7 @@ struct FocusTextInput: View {
     var leadingSymbol: String?
     var isSecure = false
     var showsClearButton = false
+    var onSubmit: (() -> Void)?
 
     @FocusState private var isFocused: Bool
 
@@ -87,6 +89,10 @@ struct FocusTextInput: View {
             .textFieldStyle(.plain)
             .font(.system(size: 12))
             .focused($isFocused)
+            .onSubmit {
+                isFocused = false
+                onSubmit?()
+            }
 
             if showsClearButton && !text.isEmpty {
                 Button {
@@ -108,7 +114,64 @@ struct FocusTextInput: View {
             RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous)
                 .stroke(isFocused ? Color.accentColor : Color.quietBorder, lineWidth: isFocused ? 1.5 : 1)
         }
+        .background {
+            FocusOutsideClickMonitor(isActive: isFocused) {
+                isFocused = false
+            }
+        }
         .animation(.easeOut(duration: 0.14), value: isFocused)
+    }
+}
+
+private struct FocusOutsideClickMonitor: NSViewRepresentable {
+    let isActive: Bool
+    let onOutsideClick: () -> Void
+
+    func makeNSView(context: Context) -> OutsideClickMonitorView {
+        OutsideClickMonitorView()
+    }
+
+    func updateNSView(_ nsView: OutsideClickMonitorView, context: Context) {
+        nsView.isActive = isActive
+        nsView.onOutsideClick = onOutsideClick
+    }
+}
+
+private final class OutsideClickMonitorView: NSView {
+    var isActive = false
+    var onOutsideClick: (() -> Void)?
+    private var eventMonitor: Any?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        installMonitorIfNeeded()
+    }
+
+    deinit {
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+        }
+    }
+
+    private func installMonitorIfNeeded() {
+        guard eventMonitor == nil else { return }
+        eventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            guard let self,
+                  self.isActive,
+                  event.window === self.window else {
+                return event
+            }
+
+            let point = self.convert(event.locationInWindow, from: nil)
+            if !self.bounds.contains(point) {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onOutsideClick?()
+                }
+            }
+            return event
+        }
     }
 }
 
@@ -267,6 +330,103 @@ struct FocusPriorityControl: View {
     }
 }
 
+struct FocusBranchSelect: View {
+    @EnvironmentObject private var preferences: AppPreferences
+    let branches: [String]
+    @Binding var selection: String
+
+    @State private var isOpen = false
+    @State private var searchText = ""
+
+    var body: some View {
+        Button {
+            isOpen.toggle()
+        } label: {
+            HStack(spacing: Layout.compact) {
+                Image(systemName: "arrow.triangle.branch")
+                    .foregroundStyle(Color.accentColor)
+                Text(selection)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .font(.system(size: 11.5, weight: .medium))
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity)
+            .frame(height: 32)
+            .background(isOpen ? Color.elevatedBackground : Color.subtleFill)
+            .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous)
+                    .stroke(isOpen ? Color.accentColor : Color.quietBorder, lineWidth: isOpen ? 1.5 : 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $isOpen, arrowEdge: .bottom) {
+            VStack(spacing: Layout.compact) {
+                if branchOptions.count > 8 {
+                    FocusTextInput(
+                        placeholder: preferences.language.text("Tìm branch", "Search branches"),
+                        text: $searchText,
+                        leadingSymbol: "magnifyingglass",
+                        showsClearButton: true
+                    )
+                }
+
+                ScrollView {
+                    LazyVStack(spacing: 3) {
+                        ForEach(filteredBranches, id: \.self) { branch in
+                            Button {
+                                selection = branch
+                                isOpen = false
+                            } label: {
+                                HStack(spacing: Layout.compact) {
+                                    Image(systemName: "arrow.triangle.branch")
+                                        .foregroundStyle(branch == selection ? Color.accentColor : Color.secondary)
+                                        .frame(width: 16)
+                                    Text(branch)
+                                        .font(.system(size: 11.5, weight: .medium))
+                                        .lineLimit(1)
+                                    Spacer()
+                                    if branch == selection {
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                }
+                                .padding(.horizontal, 9)
+                                .frame(height: 32)
+                                .background(branch == selection ? Color.accentColor.opacity(0.1) : Color.clear)
+                                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .frame(maxHeight: 240)
+            }
+            .padding(8)
+            .frame(width: 280)
+        }
+    }
+
+    private var branchOptions: [String] {
+        Array(Set(branches + [selection]))
+            .filter { !$0.isEmpty }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    private var filteredBranches: [String] {
+        guard !searchText.isEmpty else { return branchOptions }
+        return branchOptions.filter { $0.localizedCaseInsensitiveContains(searchText) }
+    }
+}
+
 struct FocusProgressSlider: View {
     @EnvironmentObject private var preferences: AppPreferences
     @Binding var value: Int
@@ -327,6 +487,91 @@ struct FocusProgressSlider: View {
     }
 }
 
+struct FocusProgressBar: View {
+    let value: Int
+    var tint: Color
+    var height: CGFloat = 6
+
+    var body: some View {
+        GeometryReader { proxy in
+            let fraction = CGFloat(min(max(value, 0), 100)) / 100
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.strongBorder.opacity(0.55))
+
+                if fraction > 0 {
+                    Capsule()
+                        .fill(tint)
+                        .frame(width: proxy.size.width * fraction)
+                }
+            }
+        }
+        .frame(height: height)
+        .accessibilityElement()
+        .accessibilityLabel("Progress")
+        .accessibilityValue("\(value) percent")
+    }
+}
+
+struct FocusPlanModeControl: View {
+    @EnvironmentObject private var preferences: AppPreferences
+    @Binding var usesOutline: Bool
+
+    var body: some View {
+        HStack(spacing: 3) {
+            modeButton(
+                title: preferences.language.text("Phần trăm", "Percentage"),
+                symbol: "chart.bar.fill",
+                isSelected: !usesOutline
+            ) {
+                usesOutline = false
+            }
+
+            modeButton(
+                title: preferences.language.text("Outline công việc", "Task outline"),
+                symbol: "checklist",
+                isSelected: usesOutline
+            ) {
+                usesOutline = true
+            }
+        }
+        .padding(3)
+        .frame(maxWidth: .infinity)
+        .frame(height: 36)
+        .background(Color.subtleFill)
+        .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous)
+                .stroke(Color.quietBorder, lineWidth: 1)
+        }
+    }
+
+    private func modeButton(
+        title: String,
+        symbol: String,
+        isSelected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 28)
+                .background(isSelected ? Color.elevatedBackground : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(Color.quietBorder, lineWidth: 1)
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct FocusCheckbox: View {
     @EnvironmentObject private var preferences: AppPreferences
     let title: String
@@ -371,64 +616,50 @@ struct FocusDateInput: View {
     @State private var showsCalendar = false
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: Layout.compact) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    showsCalendar.toggle()
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(dayText)
-                        .frame(width: 18)
-                    separator
-                    Text(monthText)
-                        .frame(width: 18)
-                    separator
-                    Text(yearText)
-                        .frame(width: 36)
+        Button {
+            showsCalendar.toggle()
+        } label: {
+            HStack(spacing: 4) {
+                Text(dayText)
+                    .frame(width: 18)
+                separator
+                Text(monthText)
+                    .frame(width: 18)
+                separator
+                Text(yearText)
+                    .frame(width: 36)
 
-                    Rectangle()
-                        .fill(Color.quietBorder)
-                        .frame(width: 1, height: 17)
-                        .padding(.horizontal, 3)
+                Rectangle()
+                    .fill(Color.quietBorder)
+                    .frame(width: 1, height: 17)
+                    .padding(.horizontal, 3)
 
-                    Image(systemName: showsCalendar ? "calendar.badge.minus" : "calendar")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(showsCalendar ? Color.accentColor : Color.secondary)
-                }
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 10)
-                .frame(height: 34)
-                .background(showsCalendar ? Color.elevatedBackground : Color.subtleFill)
-                .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous)
-                        .stroke(showsCalendar ? Color.accentColor : Color.quietBorder, lineWidth: showsCalendar ? 1.5 : 1)
-                }
-                .contentShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
+                Image(systemName: showsCalendar ? "calendar.badge.minus" : "calendar")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(showsCalendar ? Color.accentColor : Color.secondary)
             }
-            .buttonStyle(.plain)
-            .help(showsCalendar
-                ? preferences.language.text("Đóng lịch", "Close calendar")
-                : preferences.language.text("Mở lịch", "Open calendar"))
-
-            if showsCalendar {
-                FocusCalendar(date: $date) {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        showsCalendar = false
-                    }
-                }
-                .padding(10)
-                .background(Color.panelBackground)
-                .clipShape(RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous)
-                        .stroke(Color.quietBorder, lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .background(showsCalendar ? Color.elevatedBackground : Color.subtleFill)
+            .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous)
+                    .stroke(showsCalendar ? Color.accentColor : Color.quietBorder, lineWidth: showsCalendar ? 1.5 : 1)
             }
+            .contentShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .help(showsCalendar
+            ? preferences.language.text("Đóng lịch", "Close calendar")
+            : preferences.language.text("Mở lịch", "Open calendar"))
+        .popover(isPresented: $showsCalendar, arrowEdge: .bottom) {
+            FocusCalendar(date: $date) {
+                showsCalendar = false
+            }
+            .padding(12)
+            .background(Color.panelBackground)
         }
     }
 
@@ -507,12 +738,12 @@ private struct FocusCalendar: View {
                         .frame(width: 28, height: 22)
                 }
 
-                ForEach(0..<leadingBlankCount, id: \.self) { _ in
-                    Color.clear.frame(width: 28, height: 28)
-                }
-
-                ForEach(daysInDisplayedMonth, id: \.self) { dayNumber in
-                    dayButton(dayNumber)
+                ForEach(Array(calendarCells.enumerated()), id: \.offset) { _, dayNumber in
+                    if let dayNumber {
+                        dayButton(dayNumber)
+                    } else {
+                        Color.clear.frame(width: 28, height: 28)
+                    }
                 }
             }
         }
@@ -532,6 +763,11 @@ private struct FocusCalendar: View {
 
     private var daysInDisplayedMonth: Range<Int> {
         calendar.range(of: .day, in: .month, for: displayedMonth) ?? 1..<1
+    }
+
+    private var calendarCells: [Int?] {
+        Array(repeating: nil, count: leadingBlankCount)
+            + daysInDisplayedMonth.map(Optional.some)
     }
 
     private func dayButton(_ dayNumber: Int) -> some View {

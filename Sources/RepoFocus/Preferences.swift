@@ -57,6 +57,14 @@ final class AppPreferences: ObservableObject {
         didSet { UserDefaults.standard.set(language.rawValue, forKey: Keys.language) }
     }
 
+    @Published var remindersEnabled: Bool {
+        didSet { UserDefaults.standard.set(remindersEnabled, forKey: Keys.remindersEnabled) }
+    }
+
+    @Published var reminderTimeMinutes: Int {
+        didSet { UserDefaults.standard.set(reminderTimeMinutes, forKey: Keys.reminderTimeMinutes) }
+    }
+
     init() {
         theme = AppTheme(
             rawValue: UserDefaults.standard.string(forKey: Keys.theme) ?? ""
@@ -64,11 +72,16 @@ final class AppPreferences: ObservableObject {
         language = AppLanguage(
             rawValue: UserDefaults.standard.string(forKey: Keys.language) ?? ""
         ) ?? .vietnamese
+        remindersEnabled = UserDefaults.standard.bool(forKey: Keys.remindersEnabled)
+        let savedReminderTime = UserDefaults.standard.object(forKey: Keys.reminderTimeMinutes) as? Int
+        reminderTimeMinutes = min(max(savedReminderTime ?? 9 * 60, 0), 1_439)
     }
 
     private enum Keys {
         static let theme = "appearance.theme"
         static let language = "appearance.language"
+        static let remindersEnabled = "reminders.daily-enabled"
+        static let reminderTimeMinutes = "reminders.time-minutes"
     }
 }
 

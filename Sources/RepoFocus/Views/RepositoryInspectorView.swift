@@ -7,11 +7,15 @@ struct RepositoryInspectorView: View {
     @Environment(\.openURL) private var openURL
 
     let repository: RepositoryRecord
+    @State private var newPlanItemTitle = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Layout.large) {
                 repositoryHeader
+                if !localPathIsEmpty, repository.tracking.gitStatus != nil {
+                    LocalGitWorkspaceView(repository: repository)
+                }
                 trackingSection
                 deadlineSection
                 localGitSection
@@ -46,10 +50,23 @@ struct RepositoryInspectorView: View {
                 VStack(alignment: .leading, spacing: Layout.grid) {
                     Text(repository.github.name)
                         .font(.system(size: 18, weight: .semibold))
-                    Text(repository.github.nameWithOwner)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    HStack(spacing: 6) {
+                        Label(
+                            repository.github.sourceProvider.localizedTitle(preferences.language),
+                            systemImage: repository.github.sourceProvider.symbolName
+                        )
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(repository.github.sourceProvider.tintColor)
+                            .padding(.horizontal, 6)
+                            .frame(height: 20)
+                            .background(repository.github.sourceProvider.tintColor.opacity(0.08))
+                            .clipShape(Capsule())
+
+                        Text(repository.github.nameWithOwner)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
                 }
 
                 Spacer()
@@ -67,7 +84,7 @@ struct RepositoryInspectorView: View {
                     openURL(repository.github.url)
                 } label: {
                     Label(
-                        preferences.language.text("Mở trên GitHub", "Open on GitHub"),
+                        openRepositoryTitle,
                         systemImage: "arrow.up.right.square"
                     )
                 }
@@ -91,6 +108,26 @@ struct RepositoryInspectorView: View {
     private var trackingSection: some View {
         InspectorSection(title: preferences.language.text("Theo dõi", "Tracking")) {
             VStack(spacing: Layout.regular) {
+                if repository.tracking.isFocused {
+                    VStack(alignment: .leading, spacing: Layout.compact) {
+                        Text(preferences.language.text("Nhánh tập trung", "Focus branch"))
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                        FocusBranchSelect(
+                            branches: availableBranches,
+                            selection: focusBranchBinding
+                        )
+                    }
+
+                    Text(preferences.language.text(
+                        "Trạng thái, tiến độ, deadline và outline bên dưới chỉ áp dụng cho branch này.",
+                        "Status, progress, deadline, and the outline below apply only to this branch."
+                    ))
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 HStack(spacing: Layout.compact) {
                     Text(preferences.language.text("Trạng thái", "Status"))
                         .font(.system(size: 12, weight: .medium))
@@ -113,19 +150,29 @@ struct RepositoryInspectorView: View {
                         HStack {
                             Text(preferences.language.text("Tiến độ", "Progress"))
                             Spacer()
-                            Text("\(repository.tracking.progress)%")
+                            Text("\(repository.displayProgress)%")
                                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                                 .monospacedDigit()
                         }
-                        FocusProgressSlider(
-                            value: Binding(
-                                get: { repository.tracking.progress },
-                                set: { newValue in
-                                    store.updateTracking(repositoryID: repository.id) { $0.progress = newValue }
-                                }
-                            ),
-                            tint: repository.tracking.status.color
-                        )
+
+                        if repository.tracking.usesOutlinePlan == true {
+                            FocusProgressBar(
+                                value: repository.displayProgress,
+                                tint: repository.tracking.status.color,
+                                height: 7
+                            )
+                            .padding(.vertical, 8)
+                        } else {
+                            FocusProgressSlider(
+                                value: Binding(
+                                    get: { repository.tracking.progress },
+                                    set: { newValue in
+                                        store.updateTracking(repositoryID: repository.id) { $0.progress = newValue }
+                                    }
+                                ),
+                                tint: repository.tracking.status.color
+                            )
+                        }
                     }
                 }
             }
@@ -143,6 +190,20 @@ struct RepositoryInspectorView: View {
                     text: binding(\.nextAction)
                 )
 
+                if repository.tracking.isFocused {
+                    VStack(alignment: .leading, spacing: Layout.compact) {
+                        Text(preferences.language.text("Cách theo dõi tiến độ", "Progress method"))
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+
+                        FocusPlanModeControl(usesOutline: outlinePlanBinding)
+                    }
+
+                    if repository.tracking.usesOutlinePlan == true {
+                        outlinePlanEditor
+                    }
+                }
+
                 FocusCheckbox(
                     title: preferences.language.text("Đặt hạn hoàn thành", "Set deadline"),
                     isOn: deadlineEnabledBinding
@@ -159,6 +220,139 @@ struct RepositoryInspectorView: View {
                     }
                 }
             }
+        }
+    }
+
+    private var outlinePlanEditor: some View {
+        VStack(alignment: .leading, spacing: Layout.compact) {
+            HStack {
+                Text(preferences.language.text("Outline công việc", "Task outline"))
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer()
+                Text(outlineSummaryText)
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
+            if planItems.isEmpty {
+                HStack(spacing: Layout.compact) {
+                    Image(systemName: "checklist")
+                        .foregroundStyle(.secondary)
+                    Text(preferences.language.text(
+                        "Thêm từng việc để theo dõi tiến độ của repo.",
+                        "Add tasks to track this repository's progress."
+                    ))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.subtleFill)
+                .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(planItems) { item in
+                        planItemRow(item)
+                    }
+                }
+            }
+
+            HStack(spacing: Layout.compact) {
+                FocusTextInput(
+                    placeholder: preferences.language.text("Tên việc hoặc cụm từ trong commit", "Task name or commit phrase"),
+                    text: $newPlanItemTitle,
+                    onSubmit: addPlanItem
+                )
+
+                Button {
+                    addPlanItem()
+                } label: {
+                    Image(systemName: "plus")
+                        .frame(width: 14)
+                }
+                .buttonStyle(FocusButtonStyle(role: .primary))
+                .disabled(newPlanItemTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .help(preferences.language.text("Thêm việc", "Add task"))
+            }
+
+            Label(
+                preferences.language.text(
+                    "RepoFocus tự tích khi tiêu đề commit mới chứa tên việc; bạn cũng có thể tự tích.",
+                    "RepoFocus auto-checks a task when a new commit title contains its name; you can also check it manually."
+                ),
+                systemImage: "sparkles"
+            )
+                .font(.system(size: 9.5))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .background(Color.panelBackground)
+        .clipShape(RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Layout.cardRadius, style: .continuous)
+                .stroke(Color.quietBorder, lineWidth: 1)
+        }
+    }
+
+    private func planItemRow(_ item: RepositoryPlanItem) -> some View {
+        HStack(alignment: .top, spacing: Layout.compact) {
+            Button {
+                store.togglePlanItem(repositoryID: repository.id, itemID: item.id)
+            } label: {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .fill(item.isCompleted ? Color.accentColor : Color.subtleFill)
+                    .frame(width: 18, height: 18)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                            .stroke(item.isCompleted ? Color.accentColor : Color.quietBorder, lineWidth: 1)
+                    }
+                    .overlay {
+                        if item.isCompleted {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                    }
+            }
+            .buttonStyle(.plain)
+            .help(item.isCompleted
+                ? preferences.language.text("Đánh dấu chưa hoàn thành", "Mark incomplete")
+                : preferences.language.text("Đánh dấu hoàn thành", "Mark complete"))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.title)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(item.isCompleted ? Color.secondary : Color.primary)
+                    .strikethrough(item.isCompleted, color: .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Label(planItemDetail(item), systemImage: planItemDetailSymbol(item))
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(item.completionSource == .commit ? Color.green : Color.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: Layout.grid)
+
+            Button {
+                store.removePlanItem(repositoryID: repository.id, itemID: item.id)
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .help(preferences.language.text("Xóa việc", "Delete task"))
+        }
+        .padding(9)
+        .background(Color.subtleFill)
+        .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous)
+                .stroke(Color.quietBorder.opacity(0.8), lineWidth: 1)
         }
     }
 
@@ -181,6 +375,14 @@ struct RepositoryInspectorView: View {
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
 
+                Text(preferences.language.text(
+                    "Đây là thư mục chứa source Git của repo trên máy. RepoFocus dùng nó để đọc trạng thái commit, push và conflict.",
+                    "This is the folder containing the repository's Git source on your Mac. RepoFocus uses it to read commit, push and conflict status."
+                ))
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
                 FocusTextInput(
                     placeholder: preferences.language.text("Dán đường dẫn thư mục repo", "Paste the repository folder path"),
                     text: localPathBinding,
@@ -188,24 +390,45 @@ struct RepositoryInspectorView: View {
                 )
 
                 HStack(spacing: Layout.compact) {
-                    Button {
-                        Task { await store.checkLocalGit(repositoryID: repository.id) }
-                    } label: {
-                        if isCheckingLocalGit {
-                            HStack(spacing: 6) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text(preferences.language.text("Đang kiểm tra…", "Checking…"))
+                    if localPathIsEmpty {
+                        Button {
+                            Task { await store.autoDetectLocalRepositories(repositoryID: repository.id) }
+                        } label: {
+                            if isDetectingLocalRepository {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text(preferences.language.text("Đang tìm…", "Searching…"))
+                                }
+                            } else {
+                                Label(
+                                    preferences.language.text("Tự tìm trên máy", "Find on this Mac"),
+                                    systemImage: "magnifyingglass"
+                                )
                             }
-                        } else {
-                            Label(
-                                preferences.language.text("Kiểm tra Git", "Check Git"),
-                                systemImage: "arrow.triangle.2.circlepath"
-                            )
                         }
+                        .buttonStyle(FocusButtonStyle(role: .secondary))
+                        .disabled(isDetectingLocalRepository)
+                    } else {
+                        Button {
+                            Task { await store.checkLocalGit(repositoryID: repository.id) }
+                        } label: {
+                            if isCheckingLocalGit {
+                                HStack(spacing: 6) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text(preferences.language.text("Đang kiểm tra…", "Checking…"))
+                                }
+                            } else {
+                                Label(
+                                    preferences.language.text("Kiểm tra Git", "Check Git"),
+                                    systemImage: "arrow.triangle.2.circlepath"
+                                )
+                            }
+                        }
+                        .buttonStyle(FocusButtonStyle(role: .secondary))
+                        .disabled(isCheckingLocalGit)
                     }
-                    .buttonStyle(FocusButtonStyle(role: .secondary))
-                    .disabled(localPathIsEmpty || isCheckingLocalGit)
 
                     Spacer()
 
@@ -221,20 +444,30 @@ struct RepositoryInspectorView: View {
 
                 localGitResult
 
-                Text(preferences.language.text(
-                    "RepoFocus chỉ đọc `git status`; không commit, push, pull hay sửa file.",
-                    "RepoFocus only reads `git status`; it never commits, pushes, pulls or changes files."
-                ))
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
     @ViewBuilder
     private var localGitResult: some View {
-        if case let .failed(message) = store.localGitCheckState(repositoryID: repository.id) {
+        if store.localRepositoryDetectionState(repositoryID: repository.id) == .notFound,
+           localPathIsEmpty {
+            Label(
+                preferences.language.text(
+                    "Không tìm thấy checkout khớp trên máy. Bạn vẫn có thể dán đường dẫn thủ công.",
+                    "No matching checkout was found. You can still paste its path manually."
+                ),
+                systemImage: "folder.badge.questionmark"
+            )
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if case let .failed(message) = store.localRepositoryDetectionState(repositoryID: repository.id) {
+            Label(message, systemImage: "exclamationmark.triangle.fill")
+                .font(.system(size: 10.5, weight: .medium))
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        } else if case let .failed(message) = store.localGitCheckState(repositoryID: repository.id) {
             Label(localizedGitError(message), systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(.red)
@@ -294,6 +527,56 @@ struct RepositoryInspectorView: View {
         )
     }
 
+    private var outlinePlanBinding: Binding<Bool> {
+        Binding(
+            get: { repository.tracking.usesOutlinePlan == true },
+            set: { store.setOutlinePlanEnabled(repositoryID: repository.id, enabled: $0) }
+        )
+    }
+
+    private var planItems: [RepositoryPlanItem] {
+        repository.tracking.planItems ?? []
+    }
+
+    private var outlineSummaryText: String {
+        let summary = repository.planCompletionSummary
+        return preferences.language.text(
+            "\(summary.completed)/\(summary.total) hoàn thành",
+            "\(summary.completed)/\(summary.total) complete"
+        )
+    }
+
+    private func addPlanItem() {
+        guard !newPlanItemTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        store.addPlanItem(repositoryID: repository.id, title: newPlanItemTitle)
+        newPlanItemTitle = ""
+        if repository.tracking.localPath != nil {
+            Task { await store.checkLocalGit(repositoryID: repository.id) }
+        }
+    }
+
+    private func planItemDetail(_ item: RepositoryPlanItem) -> String {
+        if item.completionSource == .commit, let sha = item.matchedCommitSHA {
+            return preferences.language.text(
+                "Tự động từ commit \(String(sha.prefix(7)))",
+                "Auto-completed by commit \(String(sha.prefix(7)))"
+            )
+        }
+        if item.completionSource == .manual {
+            return preferences.language.text("Đã tích thủ công", "Checked manually")
+        }
+        return preferences.language.text(
+            "Chờ commit chứa “\(item.commitKeyword)”",
+            "Waiting for a commit containing “\(item.commitKeyword)”"
+        )
+    }
+
+    private func planItemDetailSymbol(_ item: RepositoryPlanItem) -> String {
+        if item.completionSource == .commit { return "point.topleft.down.curvedto.point.bottomright.up" }
+        if item.completionSource == .manual { return "hand.tap" }
+        return "text.magnifyingglass"
+    }
+
     private var deadlineBinding: Binding<Date> {
         Binding(
             get: { repository.tracking.deadline ?? .now },
@@ -310,6 +593,38 @@ struct RepositoryInspectorView: View {
         )
     }
 
+    private var focusBranchBinding: Binding<String> {
+        Binding(
+            get: {
+                repository.tracking.focusBranch
+                    ?? repository.tracking.gitStatus?.branch
+                    ?? repository.github.defaultBranch
+                    ?? "main"
+            },
+            set: { branchName in
+                store.setFocusBranch(repositoryID: repository.id, branchName: branchName)
+                if repository.tracking.localPath != nil {
+                    Task { await store.checkLocalGit(repositoryID: repository.id) }
+                }
+            }
+        )
+    }
+
+    private var availableBranches: [String] {
+        var branches = repository.tracking.localBranches ?? []
+        if let defaultBranch = repository.github.defaultBranch {
+            branches.append(defaultBranch)
+        }
+        if let currentBranch = repository.tracking.gitStatus?.branch {
+            branches.append(currentBranch)
+        }
+        if let focusBranch = repository.tracking.focusBranch {
+            branches.append(focusBranch)
+        }
+        return Array(Set(branches))
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
     private var localPathIsEmpty: Bool {
         (repository.tracking.localPath ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -318,6 +633,10 @@ struct RepositoryInspectorView: View {
 
     private var isCheckingLocalGit: Bool {
         store.localGitCheckState(repositoryID: repository.id) == .checking
+    }
+
+    private var isDetectingLocalRepository: Bool {
+        store.localRepositoryDetectionState(repositoryID: repository.id) == .scanning
     }
 
     private func localizedGitError(_ message: String) -> String {
@@ -337,6 +656,14 @@ struct RepositoryInspectorView: View {
     private var lastPushText: String {
         guard let pushedAt = repository.github.pushedAt else { return "—" }
         return preferences.language.relativeDate(from: pushedAt)
+    }
+
+    private var openRepositoryTitle: String {
+        switch repository.github.sourceProvider {
+        case .github: preferences.language.text("Mở trên GitHub", "Open on GitHub")
+        case .gitlab: preferences.language.text("Mở trên GitLab", "Open on GitLab")
+        case .other: preferences.language.text("Mở nguồn repo", "Open repository source")
+        }
     }
 
     private func binding<Value>(_ keyPath: WritableKeyPath<RepositoryTracking, Value>) -> Binding<Value> {

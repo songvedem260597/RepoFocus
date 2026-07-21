@@ -87,6 +87,32 @@ extension WorkPriority {
     }
 }
 
+extension RepositoryProvider {
+    func localizedTitle(_ language: AppLanguage) -> String {
+        switch self {
+        case .github: "GitHub"
+        case .gitlab: "GitLab"
+        case .other: language.text("Nguồn Git khác", "Other Git source")
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .github: "chevron.left.forwardslash.chevron.right"
+        case .gitlab: "point.3.connected.trianglepath.dotted"
+        case .other: "link"
+        }
+    }
+
+    var tintColor: Color {
+        switch self {
+        case .github: .primary
+        case .gitlab: .orange
+        case .other: .secondary
+        }
+    }
+}
+
 struct PanelModifier: ViewModifier {
     func body(content: Content) -> some View {
         content

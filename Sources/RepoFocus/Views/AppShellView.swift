@@ -1,8 +1,10 @@
+import AppKit
 import RepoFocusCore
 import SwiftUI
 
 enum SidebarDestination: String, CaseIterable, Identifiable {
     case focus
+    case activity
     case allRepositories
     case needsAttention
     case completed
@@ -13,6 +15,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     func title(_ language: AppLanguage) -> String {
         switch self {
         case .focus: language.text("Đang tập trung", "Focus")
+        case .activity: language.text("Hoạt động", "Activity")
         case .allRepositories: language.text("Tất cả repo", "All Repositories")
         case .needsAttention: language.text("Cần chú ý", "Needs Attention")
         case .completed: language.text("Đã hoàn thành", "Completed")
@@ -23,16 +26,21 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     func subtitle(_ language: AppLanguage) -> String {
         switch self {
         case .focus: language.text("Những repo quan trọng nhất lúc này", "The repositories that matter right now")
-        case .allRepositories: language.text("Toàn bộ repo mà tài khoản có quyền truy cập", "Every repository available to this account")
+        case .activity: language.text("Push, commit và thay đổi theo từng branch", "Pushes, commits and changes by branch")
+        case .allRepositories: language.text(
+            "Repo từ GitHub, GitLab và các nguồn Git đã thêm",
+            "Repositories from GitHub, GitLab, and added Git sources"
+        )
         case .needsAttention: language.text("Repo đang bị chặn, quá hạn hoặc lâu chưa cập nhật", "Blocked, overdue or quiet for too long")
         case .completed: language.text("Công việc đã hoàn tất hoặc được lưu trữ", "Finished and archived work")
-        case .settings: language.text("Kết nối GitHub, giao diện và dữ liệu cục bộ", "GitHub connection, appearance and local data")
+        case .settings: language.text("Kết nối GitHub/GitLab, giao diện và dữ liệu cục bộ", "GitHub/GitLab connections, appearance and local data")
         }
     }
 
     var symbol: String {
         switch self {
         case .focus: "scope"
+        case .activity: "chart.bar.xaxis"
         case .allRepositories: "shippingbox"
         case .needsAttention: "exclamationmark.triangle"
         case .completed: "checkmark.circle"
@@ -49,6 +57,7 @@ struct AppShellView: View {
     @State private var selectedRepositoryID: String?
     @State private var searchText = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showsCloneSheet = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -69,30 +78,60 @@ struct AppShellView: View {
         .onChange(of: store.repositories) {
             selectFirstRepositoryIfNeeded()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .repoFocusOpenTodayFocus)) { _ in
+            destination = .focus
+            selectFirstRepositoryIfNeeded()
+        }
+        .sheet(isPresented: $showsCloneSheet) {
+            CloneRepositorySheet(initialRepositoryID: selectedRepositoryID) { repositoryID in
+                destination = .allRepositories
+                selectedRepositoryID = repositoryID
+            }
+            .environmentObject(store)
+            .environmentObject(preferences)
+        }
     }
 
     private var sidebar: some View {
         VStack(spacing: 0) {
-            List(selection: $destination) {
-                Section {
-                    Label(SidebarDestination.focus.title(preferences.language), systemImage: SidebarDestination.focus.symbol)
-                        .tag(SidebarDestination.focus)
-                    Label(SidebarDestination.allRepositories.title(preferences.language), systemImage: SidebarDestination.allRepositories.symbol)
-                        .tag(SidebarDestination.allRepositories)
-                    Label(SidebarDestination.needsAttention.title(preferences.language), systemImage: SidebarDestination.needsAttention.symbol)
-                        .tag(SidebarDestination.needsAttention)
-                    Label(SidebarDestination.completed.title(preferences.language), systemImage: SidebarDestination.completed.symbol)
-                        .tag(SidebarDestination.completed)
-                }
+            AppBrandHeader()
 
-                Section {
-                    Label(SidebarDestination.settings.title(preferences.language), systemImage: SidebarDestination.settings.symbol)
-                        .tag(SidebarDestination.settings)
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: Layout.compact) {
+                    SidebarSectionLabel(
+                        title: preferences.language.text("Không gian làm việc", "Workspace")
+                    )
+
+                    VStack(spacing: 3) {
+                        ForEach(workspaceDestinations) { item in
+                            SidebarMenuItem(
+                                destination: item,
+                                isSelected: destination == item,
+                                badge: badgeCount(for: item)
+                            ) {
+                                destination = item
+                            }
+                        }
+                    }
                 }
+                .padding(.horizontal, 10)
+                .padding(.top, 12)
+                .padding(.bottom, Layout.section)
             }
-            .listStyle(.sidebar)
-            .scrollContentBackground(.hidden)
-            .background(Color.sidebarBackground)
+
+            Divider()
+
+            SidebarMenuItem(
+                destination: .settings,
+                isSelected: destination == .settings,
+                badge: nil
+            ) {
+                destination = .settings
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, Layout.compact)
 
             Divider()
             ConnectionFooter()
@@ -102,6 +141,23 @@ struct AppShellView: View {
         .navigationTitle("RepoFocus")
     }
 
+    private var workspaceDestinations: [SidebarDestination] {
+        [.focus, .activity, .allRepositories, .needsAttention, .completed]
+    }
+
+    private func badgeCount(for destination: SidebarDestination) -> Int? {
+        let count: Int
+        switch destination {
+        case .focus: count = store.focusedRepositories.count
+        case .activity: count = store.activitySnapshot(for: .now)?.totalPushes ?? 0
+        case .allRepositories: count = store.repositories.count
+        case .needsAttention: count = store.needsAttentionRepositories.count
+        case .completed: count = store.completedRepositories.count
+        case .settings: count = 0
+        }
+        return count > 0 ? count : nil
+    }
+
     @ViewBuilder
     private var content: some View {
         let currentDestination = destination ?? .focus
@@ -109,7 +165,8 @@ struct AppShellView: View {
         VStack(spacing: 0) {
             ContentHeader(
                 destination: currentDestination,
-                searchText: $searchText
+                searchText: $searchText,
+                onClone: { showsCloneSheet = true }
             )
 
             Divider()
@@ -120,12 +177,14 @@ struct AppShellView: View {
                     repositories: filter(store.focusedRepositories),
                     selectedRepositoryID: $selectedRepositoryID
                 )
+            case .activity:
+                DailyActivityView()
             case .allRepositories:
                 RepositoryCollectionView(
                     repositories: filter(store.repositories),
                     selectedRepositoryID: $selectedRepositoryID,
                     emptyTitle: preferences.language.text("Không tìm thấy repo", "No repositories found"),
-                    emptyMessage: preferences.language.text("Hãy thử từ khóa khác hoặc kết nối tài khoản GitHub.", "Try another search or connect your GitHub account.")
+                    emptyMessage: preferences.language.text("Hãy thử từ khóa khác hoặc kết nối tài khoản GitHub/GitLab.", "Try another search or connect your GitHub/GitLab account.")
                 )
             case .needsAttention:
                 RepositoryCollectionView(
@@ -157,6 +216,15 @@ struct AppShellView: View {
                 title: preferences.language.text("Ưu tiên dữ liệu cục bộ", "Local-first by design"),
                 message: preferences.language.text("Trạng thái, tiến độ và ghi chú chỉ được lưu trên máy Mac này.", "Your focus status, progress and notes stay on this Mac.")
             )
+        } else if destination == .activity {
+            InspectorPlaceholder(
+                symbol: "chart.bar.xaxis",
+                title: preferences.language.text("Tổng quan theo ngày", "Daily overview"),
+                message: preferences.language.text(
+                    "Chọn một ngày để xem số lượt push, commit và nội dung thay đổi của từng branch.",
+                    "Choose a date to review pushes, commits and changes for each branch."
+                )
+            )
         } else if let repository = store.repository(id: selectedRepositoryID) {
             RepositoryInspectorView(repository: repository)
                 .id(repository.id)
@@ -179,7 +247,7 @@ struct AppShellView: View {
     }
 
     private func selectFirstRepositoryIfNeeded() {
-        guard destination != .settings else {
+        guard destination != .settings && destination != .activity else {
             selectedRepositoryID = nil
             return
         }
@@ -187,6 +255,7 @@ struct AppShellView: View {
         let available: [RepositoryRecord]
         switch destination ?? .focus {
         case .focus: available = store.focusedRepositories
+        case .activity: available = []
         case .allRepositories: available = store.repositories
         case .needsAttention: available = store.needsAttentionRepositories
         case .completed: available = store.completedRepositories
@@ -199,12 +268,167 @@ struct AppShellView: View {
     }
 }
 
+private struct AppBrandHeader: View {
+    var body: some View {
+        HStack(spacing: 9) {
+            Image(nsImage: NSApplication.shared.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 28, height: 28)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                }
+                .shadow(color: .black.opacity(0.13), radius: 2, y: 1)
+
+            Text("RepoFocus")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 48)
+        .background(Color.sidebarBackground)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("RepoFocus")
+    }
+}
+
+private struct SidebarSectionLabel: View {
+    let title: String
+
+    var body: some View {
+        Text(title.uppercased())
+            .font(.system(size: 9, weight: .semibold))
+            .tracking(0.7)
+            .foregroundStyle(.tertiary)
+            .padding(.horizontal, 8)
+            .frame(height: 20, alignment: .leading)
+    }
+}
+
+private struct SidebarMenuItem: View {
+    @EnvironmentObject private var preferences: AppPreferences
+    let destination: SidebarDestination
+    let isSelected: Bool
+    let badge: Int?
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            menuLabel
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .animation(.easeOut(duration: 0.14), value: isSelected)
+        .help(destination.subtitle(preferences.language))
+        .accessibilityLabel(destination.title(preferences.language))
+        .accessibilityValue(isSelected
+            ? preferences.language.text("Đang chọn", "Selected")
+            : "")
+    }
+
+    private var menuLabel: some View {
+        HStack(spacing: 9) {
+            menuIcon
+
+            Text(destination.title(preferences.language))
+                .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .lineLimit(1)
+
+            Spacer(minLength: 5)
+
+            if let badge {
+                SidebarCountBadge(value: badge, isSelected: isSelected)
+            }
+        }
+        .padding(.horizontal, 7)
+        .frame(height: 38)
+        .background(rowBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(alignment: .leading) { selectionIndicator }
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(selectionBorder, lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var menuIcon: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(iconBackground)
+            Image(systemName: destination.symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(iconColor)
+        }
+        .frame(width: 26, height: 26)
+    }
+
+    @ViewBuilder
+    private var selectionIndicator: some View {
+        if isSelected {
+            Capsule()
+                .fill(Color.accentColor)
+                .frame(width: 3, height: 18)
+                .padding(.leading, 1)
+        }
+    }
+
+    private var rowBackground: Color {
+        if isSelected { return Color.accentColor.opacity(0.105) }
+        if isHovered { return Color.primary.opacity(0.045) }
+        return .clear
+    }
+
+    private var iconBackground: Color {
+        if isSelected { return Color.accentColor.opacity(0.14) }
+        return Color.primary.opacity(isHovered ? 0.07 : 0.045)
+    }
+
+    private var iconColor: Color {
+        isSelected ? .accentColor : .secondary
+    }
+
+    private var selectionBorder: Color {
+        isSelected ? Color.accentColor.opacity(0.16) : .clear
+    }
+}
+
+private struct SidebarCountBadge: View {
+    let value: Int
+    let isSelected: Bool
+
+    var body: some View {
+        Text(value > 99 ? "99+" : "\(value)")
+            .font(.system(size: 9, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .padding(.horizontal, 6)
+            .frame(minWidth: 22)
+            .frame(height: 19)
+            .background(badgeBackground)
+            .clipShape(Capsule())
+    }
+
+    private var badgeBackground: Color {
+        isSelected ? Color.accentColor.opacity(0.1) : Color.primary.opacity(0.055)
+    }
+}
+
 private struct ContentHeader: View {
     @EnvironmentObject private var store: RepositoryStore
     @EnvironmentObject private var preferences: AppPreferences
 
     let destination: SidebarDestination
     @Binding var searchText: String
+    let onClone: () -> Void
 
     var body: some View {
         HStack(spacing: Layout.section) {
@@ -218,7 +442,13 @@ private struct ContentHeader: View {
 
             Spacer(minLength: Layout.section)
 
-            if destination != .settings {
+            if destination != .settings && destination != .activity {
+                Button(action: onClone) {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .buttonStyle(FocusButtonStyle(role: .icon))
+                .help(preferences.language.text("Clone repository về máy", "Clone a repository to this Mac"))
+
                 FocusTextInput(
                     placeholder: preferences.language.text("Tìm repo", "Search repositories"),
                     text: $searchText,
@@ -230,7 +460,7 @@ private struct ContentHeader: View {
                 Button {
                     Task { await store.refreshAll() }
                 } label: {
-                    if store.connectionState == .syncing {
+                    if store.isSyncingSources {
                         ProgressView()
                             .controlSize(.small)
                     } else {
@@ -238,8 +468,8 @@ private struct ContentHeader: View {
                     }
                 }
                 .buttonStyle(FocusButtonStyle(role: .icon))
-                .help(preferences.language.text("Đồng bộ với GitHub (⌘R)", "Sync with GitHub (⌘R)"))
-                .disabled(store.connectionState == .syncing)
+                .help(preferences.language.text("Đồng bộ GitHub và GitLab (⌘R)", "Sync GitHub and GitLab (⌘R)"))
+                .disabled(store.isSyncingSources)
             }
         }
         .padding(.horizontal, Layout.section)
@@ -276,25 +506,38 @@ private struct ConnectionFooter: View {
     }
 
     private var indicatorColor: Color {
-        switch store.connectionState {
-        case .connected: .green
-        case .syncing, .ready: .blue
-        case .failed: .red
-        case .sampleData: .orange
-        }
+        if store.isSyncingSources { return .blue }
+        if isGitHubConnected || isGitLabConnected { return .green }
+        if case .failed = store.connectionState { return .red }
+        if case .failed = store.gitLabConnectionState { return .red }
+        return .orange
     }
 
     private var label: String {
-        switch store.connectionState {
-        case .sampleData:
-            store.isUsingSampleData
-                ? preferences.language.text("Dữ liệu mẫu", "Sample workspace")
-                : preferences.language.text("Đang ngoại tuyến", "Offline workspace")
-        case .ready: preferences.language.text("Sẵn sàng đồng bộ", "Ready to sync")
-        case .syncing: preferences.language.text("Đang đồng bộ…", "Syncing…")
-        case .connected: preferences.language.text("Đã kết nối GitHub", "GitHub connected")
-        case .failed: preferences.language.text("Kết nối gặp sự cố", "Connection issue")
+        if store.isSyncingSources {
+            return preferences.language.text("Đang đồng bộ…", "Syncing…")
         }
+        if isGitHubConnected && isGitLabConnected {
+            return preferences.language.text("Đã kết nối GitHub + GitLab", "GitHub + GitLab connected")
+        }
+        if isGitHubConnected {
+            return preferences.language.text("Đã kết nối GitHub", "GitHub connected")
+        }
+        if isGitLabConnected {
+            return preferences.language.text("Đã kết nối GitLab", "GitLab connected")
+        }
+        if store.isUsingSampleData {
+            return preferences.language.text("Dữ liệu mẫu", "Sample workspace")
+        }
+        return preferences.language.text("Không gian cục bộ", "Local workspace")
+    }
+
+    private var isGitHubConnected: Bool {
+        store.connectionState == .connected || store.connectionState == .ready
+    }
+
+    private var isGitLabConnected: Bool {
+        store.gitLabConnectionState == .connected || store.gitLabConnectionState == .ready
     }
 }
 

@@ -36,8 +36,37 @@ public struct LocalGitStatus: Codable, Hashable, Sendable {
     }
 }
 
+public struct LocalGitCommit: Hashable, Sendable {
+    public let sha: String
+    public let subject: String
+    public let committedAt: Date
+
+    public init(sha: String, subject: String, committedAt: Date) {
+        self.sha = sha
+        self.subject = subject
+        self.committedAt = committedAt
+    }
+}
+
 public protocol LocalGitStatusChecking: Sendable {
     func check(path: String) throws -> LocalGitStatus
+    func recentCommits(path: String, limit: Int) throws -> [LocalGitCommit]
+    func recentCommits(path: String, branch: String?, limit: Int) throws -> [LocalGitCommit]
+    func branches(path: String) throws -> [String]
+}
+
+public extension LocalGitStatusChecking {
+    func recentCommits(path: String, limit: Int) throws -> [LocalGitCommit] {
+        []
+    }
+
+    func recentCommits(path: String, branch: String?, limit: Int) throws -> [LocalGitCommit] {
+        try recentCommits(path: path, limit: limit)
+    }
+
+    func branches(path: String) throws -> [String] {
+        []
+    }
 }
 
 public enum LocalGitStatusError: LocalizedError, Equatable {
@@ -88,6 +117,65 @@ public struct LocalGitStatusChecker: LocalGitStatusChecking {
         return Self.parsePorcelainV2(result.output)
     }
 
+    public func recentCommits(path: String, limit: Int = 100) throws -> [LocalGitCommit] {
+        try recentCommits(path: path, branch: nil, limit: limit)
+    }
+
+    public func recentCommits(
+        path: String,
+        branch: String?,
+        limit: Int = 100
+    ) throws -> [LocalGitCommit] {
+        let normalizedPath = Self.normalized(path)
+        guard !normalizedPath.isEmpty else { throw LocalGitStatusError.emptyPath }
+
+        var arguments = [
+            "-C", normalizedPath,
+            "log", "-n", "\(max(limit, 1))"
+        ]
+        if let branch, !branch.isEmpty {
+            arguments.append(branch)
+        }
+        arguments.append("--pretty=format:%H%x09%ct%x09%s")
+        let result = try runGit(arguments: arguments)
+
+        guard result.exitCode == 0 else {
+            let message = result.error.trimmingCharacters(in: .whitespacesAndNewlines)
+            if message.localizedCaseInsensitiveContains("does not have any commits yet") ||
+                message.localizedCaseInsensitiveContains("your current branch") {
+                return []
+            }
+            if message.localizedCaseInsensitiveContains("not a git repository") {
+                throw LocalGitStatusError.notARepository
+            }
+            throw LocalGitStatusError.commandFailed(message)
+        }
+
+        return Self.parseLog(result.output)
+    }
+
+    public func branches(path: String) throws -> [String] {
+        let normalizedPath = Self.normalized(path)
+        guard !normalizedPath.isEmpty else { throw LocalGitStatusError.emptyPath }
+
+        let result = try runGit(arguments: [
+            "-C", normalizedPath,
+            "for-each-ref", "--format=%(refname:short)",
+            "refs/heads", "refs/remotes/origin"
+        ])
+        guard result.exitCode == 0 else {
+            throw LocalGitStatusError.commandFailed(
+                result.error.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+
+        return result.output
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .map(String.init)
+            .filter { $0 != "origin/HEAD" }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
     static func parsePorcelainV2(
         _ output: String,
         checkedAt: Date = .now
@@ -131,6 +219,23 @@ public struct LocalGitStatusChecker: LocalGitStatusChecking {
             conflictCount: conflictCount,
             checkedAt: checkedAt
         )
+    }
+
+    static func parseLog(_ output: String) -> [LocalGitCommit] {
+        output
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .compactMap { line in
+                let fields = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false)
+                guard fields.count == 3,
+                      let timestamp = TimeInterval(fields[1]) else {
+                    return nil
+                }
+                return LocalGitCommit(
+                    sha: String(fields[0]),
+                    subject: String(fields[2]),
+                    committedAt: Date(timeIntervalSince1970: timestamp)
+                )
+            }
     }
 
     private static func normalized(_ path: String) -> String {

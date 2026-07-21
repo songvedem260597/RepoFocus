@@ -192,7 +192,8 @@ private struct RepositoryNode: Decodable {
             openIssueCount: issues.totalCount,
             openPullRequestCount: pullRequests.totalCount,
             pushedAt: pushedAt,
-            updatedAt: updatedAt
+            updatedAt: updatedAt,
+            provider: .github
         )
     }
 }

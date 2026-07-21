@@ -9,6 +9,8 @@ struct StatusChip: View {
         Label(status.localizedTitle(preferences.language), systemImage: status.symbolName)
             .font(.system(size: 10, weight: .semibold))
             .foregroundStyle(status.color)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(status.color.opacity(0.1))
@@ -23,64 +25,108 @@ struct RepositoryRow: View {
 
     var body: some View {
         HStack(spacing: Layout.regular) {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(repository.tracking.status.color.opacity(0.12))
-                .frame(width: 34, height: 34)
+                .frame(width: 38, height: 38)
                 .overlay {
                     Image(systemName: repository.github.isPrivate ? "lock.fill" : "shippingbox.fill")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(repository.tracking.status.color)
                 }
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: Layout.compact) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
                     Text(repository.github.name)
                         .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
-
-                    StatusChip(status: repository.tracking.status)
+                        .truncationMode(.middle)
 
                     if repository.tracking.priority == .high {
                         Image(systemName: "arrow.up.circle.fill")
+                            .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(repository.tracking.priority.color)
                             .help(preferences.language.text("Ưu tiên cao", "High priority"))
                     }
                 }
 
-                Text(repository.tracking.nextAction.isEmpty
-                    ? preferences.language.text("Chưa có việc tiếp theo", "No next action")
-                    : repository.tracking.nextAction)
-                    .font(.system(size: 11))
-                    .foregroundStyle(repository.tracking.nextAction.isEmpty ? .tertiary : .secondary)
-                    .lineLimit(1)
-
-                if let gitStatus = repository.tracking.gitStatus {
-                    LocalGitBadgeRow(status: gitStatus, compact: true)
-                }
-            }
-
-            Spacer(minLength: Layout.regular)
-
-            Group {
-                if repository.tracking.deadline != nil {
-                    VStack(alignment: .trailing, spacing: 5) {
-                        Text("\(repository.tracking.progress)%")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-
-                        ProgressView(value: Double(repository.tracking.progress), total: 100)
-                            .tint(repository.tracking.status.color)
-                            .frame(width: 72)
+                if let branchName {
+                    HStack(spacing: 7) {
+                        Label(
+                            repository.github.sourceProvider.localizedTitle(preferences.language),
+                            systemImage: repository.github.sourceProvider.symbolName
+                        )
+                            .foregroundStyle(repository.github.sourceProvider.tintColor)
+                        Label(branchName, systemImage: "arrow.triangle.branch")
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .help(branchName)
                     }
+                    .font(.system(size: 9.5, weight: .medium))
                 } else {
-                    Color.clear
-                        .frame(width: 72, height: 28)
-                        .accessibilityHidden(true)
+                    Text(repository.github.primaryLanguage
+                        ?? preferences.language.text("Chưa xác định branch", "Branch unavailable"))
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
             }
+            .frame(minWidth: 130, idealWidth: 180, maxWidth: 220, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .center, spacing: 6) {
+                    StatusChip(status: repository.tracking.status)
+
+                    if let gitStatus = repository.tracking.gitStatus {
+                        RepositoryGitSummaryBadge(status: gitStatus)
+                    }
+
+                    if repository.tracking.usesOutlinePlan == true {
+                        let summary = repository.planCompletionSummary
+                        Label("\(summary.completed)/\(summary.total)", systemImage: "checklist")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .frame(height: 21)
+                            .background(Color.secondary.opacity(0.09))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+
+                    Text(repository.tracking.nextAction.isEmpty
+                        ? preferences.language.text("Chưa có việc tiếp theo", "No next action")
+                        : repository.tracking.nextAction)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(repository.tracking.nextAction.isEmpty ? .tertiary : .secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .layoutPriority(1)
+
+                    Spacer(minLength: 4)
+
+                    if repository.tracking.deadline != nil {
+                        Text("\(repository.displayProgress)%")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                        FocusProgressBar(
+                            value: repository.displayProgress,
+                            tint: repository.tracking.status.color,
+                            height: 4
+                        )
+                        .frame(width: 52)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .trailing, spacing: 5) {
-                HStack(spacing: Layout.compact) {
+                HStack(spacing: 10) {
                     MetadataCount(symbol: "smallcircle.filled.circle", value: repository.github.openIssueCount)
                     MetadataCount(symbol: "arrow.triangle.pull", value: repository.github.openPullRequestCount)
                 }
@@ -88,11 +134,13 @@ struct RepositoryRow: View {
                 Text(lastPushText)
                     .font(.system(size: 10))
                     .foregroundStyle(repository.needsAttention ? Color.orange : Color.secondary)
+                    .lineLimit(1)
             }
-            .frame(width: 92, alignment: .trailing)
+            .frame(width: 116, alignment: .trailing)
         }
         .padding(.horizontal, Layout.regular)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
+        .frame(minHeight: 68)
         .contentShape(Rectangle())
         .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
@@ -107,6 +155,99 @@ struct RepositoryRow: View {
             "Pushed \(preferences.language.relativeDate(from: pushedAt))"
         )
     }
+
+    private var branchName: String? {
+        repository.tracking.focusBranch
+            ?? repository.tracking.gitStatus?.branch
+            ?? repository.github.defaultBranch
+    }
+}
+
+private struct RepositoryGitSummaryBadge: View {
+    @EnvironmentObject private var preferences: AppPreferences
+    let status: LocalGitStatus
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: primary.symbol)
+                .font(.system(size: 8.5, weight: .semibold))
+            Text(primary.title)
+                .lineLimit(1)
+            if signals.count > 1 {
+                Text("+\(signals.count - 1)")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.system(size: 9, weight: .semibold))
+        .foregroundStyle(primary.color)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.horizontal, 6)
+        .frame(height: 21)
+        .background(primary.color.opacity(0.1))
+        .clipShape(Capsule())
+        .help(signals.map(\.title).joined(separator: " · "))
+    }
+
+    private var primary: GitSignal {
+        signals.first ?? GitSignal(
+            title: preferences.language.text("Git chưa kiểm tra", "Git not checked"),
+            symbol: "questionmark.circle",
+            color: .secondary
+        )
+    }
+
+    private var signals: [GitSignal] {
+        var values: [GitSignal] = []
+        if status.hasConflicts {
+            values.append(GitSignal(
+                title: preferences.language.text("Xung đột \(status.conflictCount)", "Conflicts \(status.conflictCount)"),
+                symbol: "exclamationmark.triangle.fill",
+                color: .red
+            ))
+        }
+        if status.hasUncommittedChanges {
+            values.append(GitSignal(
+                title: preferences.language.text("Chưa commit \(status.changedFileCount)", "Uncommitted \(status.changedFileCount)"),
+                symbol: "pencil.line",
+                color: .orange
+            ))
+        }
+        if status.hasUnpushedCommits {
+            values.append(GitSignal(
+                title: preferences.language.text("Chờ push \(status.aheadCount)", "To push \(status.aheadCount)"),
+                symbol: "arrow.up",
+                color: .blue
+            ))
+        }
+        if status.behindCount > 0 {
+            values.append(GitSignal(
+                title: preferences.language.text("Cần pull \(status.behindCount)", "To pull \(status.behindCount)"),
+                symbol: "arrow.down",
+                color: .purple
+            ))
+        }
+        if status.isCleanAndSynced {
+            values.append(GitSignal(
+                title: preferences.language.text("Đã đồng bộ", "Up to date"),
+                symbol: "checkmark.circle.fill",
+                color: .green
+            ))
+        } else if !status.hasUpstream && !status.hasUncommittedChanges {
+            values.append(GitSignal(
+                title: preferences.language.text("Chưa nối remote", "No remote branch"),
+                symbol: "link.badge.plus",
+                color: .secondary
+            ))
+        }
+        return values
+    }
+}
+
+private struct GitSignal {
+    let title: String
+    let symbol: String
+    let color: Color
 }
 
 struct LocalGitBadgeRow: View {

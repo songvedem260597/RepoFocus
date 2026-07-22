@@ -42,6 +42,16 @@ struct RepositoryRow: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(repository.tracking.status.color)
                 }
+                .overlay(alignment: .bottomTrailing) {
+                    if isCompleted {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.green)
+                            .background(Circle().fill(Color.elevatedBackground).padding(1))
+                            .offset(x: 4, y: 4)
+                            .accessibilityLabel(preferences.language.text("Đã hoàn thành", "Completed"))
+                    }
+                }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -125,12 +135,12 @@ struct RepositoryRow: View {
                     if repository.tracking.deadline != nil {
                         Text("\(repository.displayProgress)%")
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(FocusProgressAppearance.tint(for: visualProgress))
                             .monospacedDigit()
                             .lineLimit(1)
                             .fixedSize(horizontal: true, vertical: false)
                         FocusProgressBar(
-                            value: repository.displayProgress,
-                            tint: repository.tracking.status.color,
+                            value: visualProgress,
                             height: 4
                         )
                         .frame(width: 52)
@@ -174,6 +184,14 @@ struct RepositoryRow: View {
         repository.tracking.focusBranch
             ?? repository.tracking.gitStatus?.branch
             ?? repository.github.defaultBranch
+    }
+
+    private var isCompleted: Bool {
+        repository.tracking.status == .done || repository.displayProgress >= 100
+    }
+
+    private var visualProgress: Int {
+        isCompleted ? 100 : repository.displayProgress
     }
 }
 

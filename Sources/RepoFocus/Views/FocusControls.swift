@@ -430,9 +430,12 @@ struct FocusBranchSelect: View {
 struct FocusProgressSlider: View {
     @EnvironmentObject private var preferences: AppPreferences
     @Binding var value: Int
-    var tint: Color
 
     @State private var isDragging = false
+
+    private var tint: Color {
+        FocusProgressAppearance.tint(for: value)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -489,8 +492,11 @@ struct FocusProgressSlider: View {
 
 struct FocusProgressBar: View {
     let value: Int
-    var tint: Color
     var height: CGFloat = 6
+
+    private var tint: Color {
+        FocusProgressAppearance.tint(for: value)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -511,6 +517,19 @@ struct FocusProgressBar: View {
         .accessibilityElement()
         .accessibilityLabel("Progress")
         .accessibilityValue("\(value) percent")
+    }
+}
+
+enum FocusProgressAppearance {
+    static func tint(for value: Int) -> Color {
+        switch min(max(value, 0), 100) {
+        case 100:
+            .green
+        case 40..<100:
+            .orange
+        default:
+            .red
+        }
     }
 }
 

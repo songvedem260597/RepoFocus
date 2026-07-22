@@ -12,6 +12,7 @@ RepoFocus is a local-first macOS app for deciding which GitHub and GitLab reposi
 - Pushes grouped by repository and branch, with commit subjects categorized as features, fixes, refactors, documentation, tests, build or maintenance work
 - A daily macOS reminder listing the focused repositories and branches that need attention
 - An in-app "Needs attention today" panel prioritized by deadlines, blockers and merge conflicts
+- An inline next-action planner with a task list, per-task time estimates and a remaining-time total
 - Personal status, priority, progress, next action, deadline and notes
 - Focus projects can use either manual percentage progress or a task outline
 - Outline tasks can be checked manually or completed automatically by matching a new local commit title

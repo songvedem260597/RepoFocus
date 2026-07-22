@@ -759,6 +759,56 @@ struct RepositoryStoreTests {
         #expect(store.repository(id: original.id)?.tracking.progress == original.tracking.progress)
     }
 
+    @Test("Next action planner stores task estimates and enables outline progress")
+    @MainActor
+    func nextActionPlannerStoresEstimate() throws {
+        let original = try #require(SampleData.repositories.first)
+        let store = RepositoryStore(
+            persistence: MemoryPersistence(
+                database: RepositoryDatabase(repositories: [original])
+            ),
+            tokenStore: MemoryTokenStore(),
+            githubClient: StaticGitHubClient(repositories: []),
+            useSampleDataWhenEmpty: false
+        )
+
+        store.updateTracking(repositoryID: original.id) { tracking in
+            tracking.nextAction = ""
+            tracking.usesOutlinePlan = false
+        }
+        store.addPlanItem(
+            repositoryID: original.id,
+            title: "Hoàn thiện bảng công việc",
+            estimatedMinutes: 90,
+            makeNextAction: true
+        )
+        store.addPlanItem(
+            repositoryID: original.id,
+            title: "Kiểm tra giao diện",
+            estimatedMinutes: 45,
+            makeNextAction: true
+        )
+
+        var result = try #require(store.repository(id: original.id))
+        var item = try #require(result.tracking.planItems?.first)
+        #expect(result.tracking.nextAction == "Hoàn thiện bảng công việc")
+        #expect(result.tracking.usesOutlinePlan == true)
+        #expect(item.estimatedMinutes == 90)
+
+        store.updatePlanItemEstimate(
+            repositoryID: original.id,
+            itemID: item.id,
+            estimatedMinutes: 150
+        )
+        result = try #require(store.repository(id: original.id))
+        item = try #require(result.tracking.planItems?.first)
+        #expect(item.estimatedMinutes == 150)
+
+        store.togglePlanItem(repositoryID: original.id, itemID: item.id)
+        result = try #require(store.repository(id: original.id))
+        #expect(result.tracking.nextAction == "Kiểm tra giao diện")
+    }
+
     @Test("Tracking changes are clamped and persisted")
     @MainActor
     func trackingUpdateIsClampedAndPersisted() throws {

@@ -61,6 +61,7 @@ public struct RepositoryPlanItem: Codable, Hashable, Identifiable, Sendable {
     public let id: UUID
     public var title: String
     public var commitKeyword: String
+    public var estimatedMinutes: Int?
     public var isCompleted: Bool
     public var completionSource: PlanCompletionSource?
     public var matchedCommitSHA: String?
@@ -71,6 +72,7 @@ public struct RepositoryPlanItem: Codable, Hashable, Identifiable, Sendable {
         id: UUID = UUID(),
         title: String,
         commitKeyword: String? = nil,
+        estimatedMinutes: Int? = nil,
         isCompleted: Bool = false,
         completionSource: PlanCompletionSource? = nil,
         matchedCommitSHA: String? = nil,
@@ -80,6 +82,7 @@ public struct RepositoryPlanItem: Codable, Hashable, Identifiable, Sendable {
         self.id = id
         self.title = title
         self.commitKeyword = commitKeyword ?? title
+        self.estimatedMinutes = estimatedMinutes.map { min(max($0, 1), 10_080) }
         self.isCompleted = isCompleted
         self.completionSource = completionSource
         self.matchedCommitSHA = matchedCommitSHA

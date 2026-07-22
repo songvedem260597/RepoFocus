@@ -49,8 +49,16 @@ struct RepositoryInspectorView: View {
                     }
 
                 VStack(alignment: .leading, spacing: Layout.grid) {
-                    Text(repository.github.name)
-                        .font(.system(size: 18, weight: .semibold))
+                    HStack(spacing: 6) {
+                        Text(repository.github.name)
+                            .font(.system(size: 18, weight: .semibold))
+                        if isCompleted {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.green)
+                                .help(preferences.language.text("Repo đã hoàn thành", "Repository completed"))
+                        }
+                    }
                     HStack(spacing: 6) {
                         Label(
                             repository.github.sourceProvider.localizedTitle(preferences.language),
@@ -195,13 +203,24 @@ struct RepositoryInspectorView: View {
                             Spacer()
                             Text("\(repository.displayProgress)%")
                                 .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .foregroundStyle(FocusProgressAppearance.tint(for: visualProgress))
                                 .monospacedDigit()
+                            if isCompleted {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(.green)
+                            }
                         }
 
-                        if repository.tracking.usesOutlinePlan == true {
+                        if isCompleted {
+                            FocusProgressBar(
+                                value: 100,
+                                height: 7
+                            )
+                            .padding(.vertical, 8)
+                        } else if repository.tracking.usesOutlinePlan == true {
                             FocusProgressBar(
                                 value: repository.displayProgress,
-                                tint: repository.tracking.status.color,
                                 height: 7
                             )
                             .padding(.vertical, 8)
@@ -212,8 +231,7 @@ struct RepositoryInspectorView: View {
                                     set: { newValue in
                                         store.updateTracking(repositoryID: repository.id) { $0.progress = newValue }
                                     }
-                                ),
-                                tint: repository.tracking.status.color
+                                )
                             )
                         }
                     }
@@ -371,10 +389,22 @@ struct RepositoryInspectorView: View {
                     .strikethrough(item.isCompleted, color: .secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Label(planItemDetail(item), systemImage: planItemDetailSymbol(item))
-                    .font(.system(size: 9.5, weight: .medium))
-                    .foregroundStyle(item.completionSource == .commit ? Color.green : Color.secondary)
-                    .lineLimit(1)
+                HStack(spacing: Layout.compact) {
+                    Label(planItemDetail(item), systemImage: planItemDetailSymbol(item))
+                        .foregroundStyle(item.completionSource == .commit ? Color.green : Color.secondary)
+                        .lineLimit(1)
+
+                    if let estimatedMinutes = item.estimatedMinutes {
+                        Label(
+                            preferences.language.estimatedDuration(estimatedMinutes),
+                            systemImage: "clock"
+                        )
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                    }
+                }
+                .font(.system(size: 9.5, weight: .medium))
             }
 
             Spacer(minLength: Layout.grid)
@@ -672,6 +702,14 @@ struct RepositoryInspectorView: View {
         (repository.tracking.localPath ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .isEmpty
+    }
+
+    private var isCompleted: Bool {
+        repository.tracking.status == .done || repository.displayProgress >= 100
+    }
+
+    private var visualProgress: Int {
+        isCompleted ? 100 : repository.displayProgress
     }
 
     private var isCheckingLocalGit: Bool {

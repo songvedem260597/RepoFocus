@@ -319,13 +319,43 @@ public final class RepositoryStore: ObservableObject {
         }
     }
 
-    public func addPlanItem(repositoryID: String, title: String) {
+    public func addPlanItem(
+        repositoryID: String,
+        title: String,
+        estimatedMinutes: Int? = nil,
+        makeNextAction: Bool = false
+    ) {
         let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedTitle.isEmpty else { return }
 
         updateTracking(repositoryID: repositoryID) { tracking in
+            if makeNextAction {
+                if tracking.usesOutlinePlan != true {
+                    tracking.manualProgress = tracking.progress
+                    tracking.usesOutlinePlan = true
+                }
+                if tracking.nextAction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    tracking.nextAction = normalizedTitle
+                }
+            }
             var items = tracking.planItems ?? []
-            items.append(RepositoryPlanItem(title: normalizedTitle))
+            items.append(RepositoryPlanItem(
+                title: normalizedTitle,
+                estimatedMinutes: estimatedMinutes
+            ))
+            tracking.planItems = items
+        }
+    }
+
+    public func updatePlanItemEstimate(
+        repositoryID: String,
+        itemID: UUID,
+        estimatedMinutes: Int?
+    ) {
+        updateTracking(repositoryID: repositoryID) { tracking in
+            guard var items = tracking.planItems,
+                  let index = items.firstIndex(where: { $0.id == itemID }) else { return }
+            items[index].estimatedMinutes = estimatedMinutes.map { min(max($0, 1), 10_080) }
             tracking.planItems = items
         }
     }
@@ -346,6 +376,7 @@ public final class RepositoryStore: ObservableObject {
                 items[index].completedAt = nil
             }
             tracking.planItems = items
+            Self.advanceNextActionIfNeeded(&tracking)
         }
     }
 
@@ -364,7 +395,13 @@ public final class RepositoryStore: ObservableObject {
 
     public func removePlanItem(repositoryID: String, itemID: UUID) {
         updateTracking(repositoryID: repositoryID) { tracking in
+            guard let removedItem = tracking.planItems?.first(where: { $0.id == itemID }) else { return }
             tracking.planItems?.removeAll { $0.id == itemID }
+            if Self.normalizedCommitText(tracking.nextAction)
+                == Self.normalizedCommitText(removedItem.title) {
+                tracking.nextAction = ""
+            }
+            Self.advanceNextActionIfNeeded(&tracking)
         }
     }
 
@@ -1056,7 +1093,26 @@ public final class RepositoryStore: ObservableObject {
         }
 
         tracking.planItems = items
+        advanceNextActionIfNeeded(&tracking)
         recalculateOutlineProgress(&tracking)
+    }
+
+    private static func advanceNextActionIfNeeded(_ tracking: inout RepositoryTracking) {
+        guard tracking.usesOutlinePlan == true else { return }
+        let items = tracking.planItems ?? []
+        let current = normalizedCommitText(tracking.nextAction)
+
+        if let currentItem = items.first(where: {
+            normalizedCommitText($0.title) == current
+        }), !currentItem.isCompleted {
+            return
+        }
+
+        let currentBelongsToPlan = current.isEmpty || items.contains {
+            normalizedCommitText($0.title) == current
+        }
+        guard currentBelongsToPlan else { return }
+        tracking.nextAction = items.first(where: { !$0.isCompleted })?.title ?? ""
     }
 
     private static func normalizedCommitText(_ value: String) -> String {

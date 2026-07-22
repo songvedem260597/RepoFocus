@@ -45,6 +45,25 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         formatter.unitsStyle = .full
         return formatter.localizedString(for: date, relativeTo: referenceDate)
     }
+
+    func estimatedDuration(_ totalMinutes: Int) -> String {
+        let minutes = max(totalMinutes, 0)
+        let days = minutes / (8 * 60)
+        let hours = (minutes % (8 * 60)) / 60
+        let remainingMinutes = minutes % 60
+        var parts: [String] = []
+
+        if days > 0 {
+            parts.append(text("\(days) ngày", "\(days)d"))
+        }
+        if hours > 0 {
+            parts.append(text("\(hours) giờ", "\(hours)h"))
+        }
+        if remainingMinutes > 0 || parts.isEmpty {
+            parts.append(text("\(remainingMinutes) phút", "\(remainingMinutes)m"))
+        }
+        return parts.joined(separator: " ")
+    }
 }
 
 @MainActor

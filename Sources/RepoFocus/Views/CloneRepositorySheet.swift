@@ -175,16 +175,7 @@ struct CloneRepositorySheet: View {
         case .idle:
             EmptyView()
         case .cloning:
-            Label(
-                preferences.language.text("Đang clone repository…", "Cloning repository…"),
-                systemImage: "arrow.down.circle"
-            )
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Color.accentColor)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.accentColor.opacity(0.08))
-                .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
+            cloneProgressCard
         case let .failed(message):
             Label(message, systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: 10.5, weight: .medium))
@@ -223,7 +214,10 @@ struct CloneRepositorySheet: View {
             } label: {
                 Label(
                     isCloning
-                        ? preferences.language.text("Đang clone…", "Cloning…")
+                        ? preferences.language.text(
+                            "Đang clone (cloneProgress.percentCompleted)%",
+                            "Cloning (cloneProgress.percentCompleted)%"
+                        )
                         : preferences.language.text("Clone về máy", "Clone to Mac"),
                     systemImage: "square.and.arrow.down"
                 )
@@ -233,6 +227,55 @@ struct CloneRepositorySheet: View {
         }
         .padding(Layout.section)
         .background(Color.headerBackground)
+    }
+
+    private var cloneProgressCard: some View {
+        VStack(spacing: Layout.compact) {
+            HStack(spacing: Layout.compact) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 12, weight: .semibold))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(clonePhaseTitle)
+                        .font(.system(size: 11, weight: .semibold))
+                    if cloneProgress.phase != .preparing,
+                       cloneProgress.phase != .completed {
+                        Text(preferences.language.text(
+                            "Pha hiện tại: (cloneProgress.phasePercentCompleted)%",
+                            "Current phase: (cloneProgress.phasePercentCompleted)%"
+                        ))
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+
+                Text("\(cloneProgress.percentCompleted)%")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+            }
+            .foregroundStyle(Color.accentColor)
+
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.accentColor.opacity(0.13))
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: geometry.size.width * cloneProgress.fractionCompleted)
+                }
+            }
+            .frame(height: 6)
+            .animation(.easeOut(duration: 0.18), value: cloneProgress.fractionCompleted)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(clonePhaseTitle)
+        .accessibilityValue("\(cloneProgress.percentCompleted)%")
     }
 
     private func sectionTitle(_ title: String) -> some View {
@@ -300,6 +343,25 @@ struct CloneRepositorySheet: View {
 
     private var isCloning: Bool {
         store.cloneState == .cloning
+    }
+
+    private var cloneProgress: LocalRepositoryCloneProgress {
+        store.cloneProgress ?? .preparing
+    }
+
+    private var clonePhaseTitle: String {
+        switch cloneProgress.phase {
+        case .preparing:
+            preferences.language.text("Đang chuẩn bị repository…", "Preparing repository…")
+        case .receivingObjects:
+            preferences.language.text("Đang tải dữ liệu từ remote…", "Downloading data from remote…")
+        case .resolvingDeltas:
+            preferences.language.text("Đang xử lý thay đổi…", "Resolving changes…")
+        case .checkingOutFiles:
+            preferences.language.text("Đang tạo tệp làm việc…", "Checking out working files…")
+        case .completed:
+            preferences.language.text("Đã tải xong repository", "Repository downloaded")
+        }
     }
 
     private var finalPathPreview: String {

@@ -69,6 +69,7 @@ public final class RepositoryStore: ObservableObject {
     @Published public private(set) var recentLocalCommits: [String: [LocalGitCommit]] = [:]
     @Published public private(set) var localRepositoryDetectionStates: [String: LocalRepositoryDetectionState] = [:]
     @Published public private(set) var cloneState: RepositoryCloneState = .idle
+    @Published public private(set) var cloneProgress: LocalRepositoryCloneProgress?
     @Published public private(set) var activitySnapshots: [DailyActivitySnapshot]
     @Published public private(set) var activityLoadState: DailyActivityLoadState = .idle
 
@@ -428,6 +429,7 @@ public final class RepositoryStore: ObservableObject {
 
     public func resetCloneState() {
         cloneState = .idle
+        cloneProgress = nil
     }
 
     public static var defaultCloneParentDirectory: String {
@@ -448,15 +450,27 @@ public final class RepositoryStore: ObservableObject {
         destinationParent: String
     ) async -> String? {
         cloneState = .cloning
+        cloneProgress = .preparing
         let cloner = localRepositoryCloner
+        let progressHandler: @Sendable (LocalRepositoryCloneProgress) -> Void = { [weak self] progress in
+            Task { @MainActor [weak self] in
+                guard let self, self.cloneState == .cloning else { return }
+                guard progress.fractionCompleted >= (self.cloneProgress?.fractionCompleted ?? 0) else {
+                    return
+                }
+                self.cloneProgress = progress
+            }
+        }
 
         do {
             let result = try await Task.detached(priority: .userInitiated) {
                 try cloner.clone(
                     remoteURL: remoteURL,
-                    destinationParent: destinationParent
+                    destinationParent: destinationParent,
+                    progressHandler: progressHandler
                 )
             }.value
+            cloneProgress = .completed
 
             let resolvedRepositoryID = repositoryID
                 ?? matchingRepositoryID(for: remoteURL)

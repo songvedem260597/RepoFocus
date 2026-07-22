@@ -18,6 +18,15 @@ struct StatusChip: View {
     }
 }
 
+struct RepositoryRowButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .opacity(configuration.isPressed ? 0.82 : 1)
+    }
+}
+
 struct RepositoryRow: View {
     @EnvironmentObject private var preferences: AppPreferences
     let repository: RepositoryRecord
@@ -71,7 +80,7 @@ struct RepositoryRow: View {
                         .lineLimit(1)
                 }
             }
-            .frame(minWidth: 130, idealWidth: 180, maxWidth: 220, alignment: .leading)
+            .frame(width: 195, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .center, spacing: 6) {
@@ -103,10 +112,13 @@ struct RepositoryRow: View {
                         : repository.tracking.nextAction)
                         .font(.system(size: 10.5))
                         .foregroundStyle(repository.tracking.nextAction.isEmpty ? .tertiary : .secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .truncationMode(.tail)
                         .layoutPriority(1)
+                        .help(repository.tracking.nextAction.isEmpty
+                            ? preferences.language.text("Chưa có việc tiếp theo", "No next action")
+                            : repository.tracking.nextAction)
 
                     Spacer(minLength: 4)
 
@@ -114,6 +126,8 @@ struct RepositoryRow: View {
                         Text("\(repository.displayProgress)%")
                             .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
                         FocusProgressBar(
                             value: repository.displayProgress,
                             tint: repository.tracking.status.color,
@@ -136,11 +150,11 @@ struct RepositoryRow: View {
                     .foregroundStyle(repository.needsAttention ? Color.orange : Color.secondary)
                     .lineLimit(1)
             }
-            .frame(width: 116, alignment: .trailing)
+            .frame(width: 102, alignment: .trailing)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Layout.regular)
-        .padding(.vertical, 8)
-        .frame(minHeight: 68)
+        .frame(height: 72)
         .contentShape(Rectangle())
         .background(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
@@ -391,7 +405,7 @@ struct RepositoryCollectionView: View {
             .background(Color.appCanvas)
         } else {
             ScrollView {
-                LazyVStack(spacing: 2) {
+                LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(repositories) { repository in
                         Button {
                             selectedRepositoryID = repository.id
@@ -401,7 +415,8 @@ struct RepositoryCollectionView: View {
                                 isSelected: selectedRepositoryID == repository.id
                             )
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(RepositoryRowButtonStyle())
+                        .frame(maxWidth: .infinity)
                     }
                 }
                 .padding(Layout.compact)

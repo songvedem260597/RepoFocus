@@ -23,6 +23,7 @@ struct LocalGitWorkspaceView: View {
     @State private var commitMessage = ""
     @State private var pendingRevertSHA: String?
     @State private var confirmsAbort = false
+    @State private var codexOpenError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: Layout.regular) {
@@ -42,6 +43,28 @@ struct LocalGitWorkspaceView: View {
                         .controlSize(.small)
                 }
             }
+
+            Button {
+                openNewCodexTask()
+            } label: {
+                HStack(spacing: Layout.compact) {
+                    Image(systemName: "sparkles.rectangle.stack")
+                        .frame(width: 14)
+                    Text(preferences.language.text(
+                        "Mở tác vụ mới trong Codex",
+                        "Open new task in Codex"
+                    ))
+                    Spacer(minLength: 0)
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 9, weight: .bold))
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(FocusButtonStyle(role: .secondary))
+            .help(preferences.language.text(
+                "Mở Codex với thư mục repo này và tạo một tác vụ mới",
+                "Open Codex in this repository and create a new task"
+            ))
 
             LazyVGrid(
                 columns: [
@@ -119,6 +142,13 @@ struct LocalGitWorkspaceView: View {
 
             operationBanner
 
+            if let codexOpenError {
+                Label(codexOpenError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             Text(preferences.language.text(
                 "Các nút này chạy Git thật trong đúng thư mục repo. Pull chỉ fast-forward; hoàn tác luôn tạo commit mới bằng git revert, không dùng reset --hard.",
                 "These actions run Git in this exact repository folder. Pull is fast-forward only; reverting always creates a new commit with git revert and never uses reset --hard."
@@ -165,6 +195,46 @@ struct LocalGitWorkspaceView: View {
         }
         .buttonStyle(FocusButtonStyle(role: .secondary))
         .disabled(isRunning)
+    }
+
+    private func openNewCodexTask() {
+        codexOpenError = nil
+        guard let localPath = repository.tracking.localPath,
+              !localPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            codexOpenError = preferences.language.text(
+                "Repo này chưa có thư mục trên máy.",
+                "This repository does not have a local folder yet."
+            )
+            return
+        }
+
+        var isDirectory: ObjCBool = false
+        let expandedPath = NSString(string: localPath).expandingTildeInPath
+        guard FileManager.default.fileExists(atPath: expandedPath, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            codexOpenError = preferences.language.text(
+                "Không tìm thấy thư mục repo trên máy.",
+                "The repository folder could not be found on this Mac."
+            )
+            return
+        }
+
+        guard NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.openai.codex") != nil else {
+            codexOpenError = preferences.language.text(
+                "Không tìm thấy ứng dụng Codex trên máy.",
+                "The Codex app is not installed on this Mac."
+            )
+            return
+        }
+
+        guard let url = CodexWorkspaceLink.newTaskURL(workspacePath: expandedPath),
+              NSWorkspace.shared.open(url) else {
+            codexOpenError = preferences.language.text(
+                "Không thể mở tác vụ mới trong Codex.",
+                "Could not open a new task in Codex."
+            )
+            return
+        }
     }
 
     @ViewBuilder

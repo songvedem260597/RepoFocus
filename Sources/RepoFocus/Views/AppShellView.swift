@@ -226,7 +226,10 @@ struct AppShellView: View {
                 )
             )
         } else if let repository = store.repository(id: selectedRepositoryID) {
-            RepositoryInspectorView(repository: repository)
+            RepositoryInspectorView(
+                repository: repository,
+                isFocusDestination: destination == .focus
+            )
                 .id(repository.id)
         } else {
             InspectorPlaceholder(

@@ -7,6 +7,7 @@ struct RepositoryInspectorView: View {
     @Environment(\.openURL) private var openURL
 
     let repository: RepositoryRecord
+    let isFocusDestination: Bool
     @State private var newPlanItemTitle = ""
 
     var body: some View {
@@ -90,18 +91,60 @@ struct RepositoryInspectorView: View {
                 }
                 .buttonStyle(FocusButtonStyle(role: .secondary))
 
-                Button {
-                    store.toggleFocus(repositoryID: repository.id)
-                } label: {
-                    Label(
-                        repository.tracking.isFocused
-                            ? preferences.language.text("Đang tập trung", "In Focus")
-                            : preferences.language.text("Thêm vào tập trung", "Add to Focus"),
-                        systemImage: repository.tracking.isFocused ? "scope" : "plus"
-                    )
-                }
-                .buttonStyle(FocusButtonStyle(role: .primary))
+                focusControl
             }
+        }
+    }
+
+    @ViewBuilder
+    private var focusControl: some View {
+        if repository.tracking.isFocused, isFocusDestination {
+            Button {
+                store.toggleFocus(repositoryID: repository.id)
+            } label: {
+                Label(
+                    preferences.language.text("Bỏ khỏi tập trung", "Remove from Focus"),
+                    systemImage: "minus.circle"
+                )
+            }
+            .buttonStyle(FocusButtonStyle(role: .secondary))
+            .help(preferences.language.text(
+                "Loại repo này khỏi danh sách đang tập trung",
+                "Remove this repository from the focus list"
+            ))
+        } else if repository.tracking.isFocused {
+            Label(
+                preferences.language.text("Đang tập trung", "In Focus"),
+                systemImage: "checkmark.circle.fill"
+            )
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 11)
+                .frame(minHeight: 32)
+                .background(Color.accentColor.opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: Layout.controlRadius, style: .continuous)
+                        .stroke(Color.accentColor.opacity(0.18), lineWidth: 1)
+                }
+                .help(preferences.language.text(
+                    "Repo này đang nằm trong danh sách tập trung",
+                    "This repository is in the focus list"
+                ))
+        } else {
+            Button {
+                store.toggleFocus(repositoryID: repository.id)
+            } label: {
+                Label(
+                    preferences.language.text("Thêm vào tập trung", "Add to Focus"),
+                    systemImage: "plus"
+                )
+            }
+            .buttonStyle(FocusButtonStyle(role: .primary))
+            .help(preferences.language.text(
+                "Thêm repo này vào danh sách đang tập trung",
+                "Add this repository to the focus list"
+            ))
         }
     }
 

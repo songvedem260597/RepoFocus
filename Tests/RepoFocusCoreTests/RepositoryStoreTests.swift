@@ -420,6 +420,21 @@ struct RepositoryStoreTests {
         ) == "RepoFocus")
     }
 
+    @Test("Codex deep link creates a new task in the selected workspace")
+    func createsCodexWorkspaceLink() throws {
+        let url = try #require(CodexWorkspaceLink.newTaskURL(
+            workspacePath: "/Users/example/Projects/Repo Focus"
+        ))
+        let components = try #require(URLComponents(url: url, resolvingAgainstBaseURL: false))
+
+        #expect(components.scheme == "codex")
+        #expect(components.host == "threads")
+        #expect(components.path == "/new")
+        #expect(components.queryItems?.first(where: { $0.name == "path" })?.value
+            == "/Users/example/Projects/Repo Focus")
+        #expect(CodexWorkspaceLink.newTaskURL(workspacePath: "relative/repo") == nil)
+    }
+
     @Test("Local repository cloner executes a real git clone")
     func clonesLocalRepository() throws {
         let root = FileManager.default.temporaryDirectory
@@ -447,6 +462,74 @@ struct RepositoryStoreTests {
         #expect(FileManager.default.fileExists(
             atPath: URL(fileURLWithPath: result.path).appendingPathComponent(".git").path
         ))
+    }
+
+    @Test("Git clone output maps to monotonic overall progress")
+    func parsesCloneProgress() throws {
+        let receiving = try #require(LocalRepositoryCloner.progress(from: """
+        Cloning into 'RepoFocus'...
+        remote: Counting objects: 100% (50/50), done.
+        Receiving objects: 50% (25/50)
+        """))
+        #expect(receiving.phase == .receivingObjects)
+        #expect(receiving.phasePercentCompleted == 50)
+        #expect(receiving.percentCompleted == 41)
+
+        let resolving = try #require(LocalRepositoryCloner.progress(from: """
+        Receiving objects: 100% (50/50), done.
+        Resolving deltas: 50% (10/20)
+        """))
+        #expect(resolving.phase == .resolvingDeltas)
+        #expect(resolving.phasePercentCompleted == 50)
+        #expect(resolving.percentCompleted == 89)
+        #expect(resolving.fractionCompleted > receiving.fractionCompleted)
+
+        let checkout = try #require(LocalRepositoryCloner.progress(from: """
+        Resolving deltas: 100% (20/20), done.
+        Updating files: 50% (100/200)
+        """))
+        #expect(checkout.phase == .checkingOutFiles)
+        #expect(checkout.phasePercentCompleted == 50)
+        #expect(checkout.percentCompleted == 98)
+        #expect(checkout.fractionCompleted > resolving.fractionCompleted)
+    }
+
+    @Test("A real clone streams progress before completion")
+    func streamsRealCloneProgress() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let working = root.appendingPathComponent("working", isDirectory: true)
+        let remote = root.appendingPathComponent("remote.git", isDirectory: true)
+        let destinationParent = root.appendingPathComponent("clones", isDirectory: true)
+        try FileManager.default.createDirectory(at: working, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: destinationParent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        try runGitForCloneTest(["init", working.path])
+        try runGitForCloneTest(["-C", working.path, "config", "user.name", "RepoFocus Test"])
+        try runGitForCloneTest(["-C", working.path, "config", "user.email", "test@repofocus.local"])
+        for index in 0..<160 {
+            let file = working.appendingPathComponent("fixture-\(index).txt")
+            let content = Data(repeating: UInt8(index % 251), count: 2_048 + index)
+            try content.write(to: file)
+        }
+        try runGitForCloneTest(["-C", working.path, "add", "-A"])
+        try runGitForCloneTest(["-C", working.path, "commit", "-m", "Add progress fixtures"])
+        try runGitForCloneTest(["clone", "--bare", working.path, remote.path])
+
+        let recorder = CloneProgressRecorder()
+        _ = try LocalRepositoryCloner().clone(
+            remoteURL: remote.absoluteString,
+            destinationParent: destinationParent.path,
+            progressHandler: { progress in recorder.append(progress) }
+        )
+
+        let values = recorder.values
+        #expect(values.contains { $0.phase == .receivingObjects })
+        #expect(values.last == .completed)
+        #expect(zip(values, values.dropFirst()).allSatisfy {
+            $0.fractionCompleted <= $1.fractionCompleted
+        })
     }
 
     @Test("Focus tracking is isolated for each branch")
@@ -763,6 +846,40 @@ struct RepositoryStoreTests {
     }
 }
 
+private func runGitForCloneTest(_ arguments: [String]) throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+    process.arguments = arguments
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    try process.run()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+        throw NSError(
+            domain: "RepoFocusCloneProgressTests",
+            code: Int(process.terminationStatus),
+            userInfo: [NSLocalizedDescriptionKey: "git command failed: \(arguments.joined(separator: " "))"]
+        )
+    }
+}
+
+private final class CloneProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [LocalRepositoryCloneProgress] = []
+
+    func append(_ progress: LocalRepositoryCloneProgress) {
+        lock.lock()
+        storage.append(progress)
+        lock.unlock()
+    }
+
+    var values: [LocalRepositoryCloneProgress] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
+    }
+}
+
 private final class MemoryPersistence: RepositoryPersisting, @unchecked Sendable {
     var database: RepositoryDatabase?
 
@@ -870,7 +987,12 @@ private struct StaticLocalGitChecker: LocalGitStatusChecking {
 private struct StaticLocalRepositoryCloner: LocalRepositoryCloning {
     let result: LocalRepositoryCloneResult
 
-    func clone(remoteURL: String, destinationParent: String) throws -> LocalRepositoryCloneResult {
-        result
+    func clone(
+        remoteURL: String,
+        destinationParent: String,
+        progressHandler: @escaping @Sendable (LocalRepositoryCloneProgress) -> Void
+    ) throws -> LocalRepositoryCloneResult {
+        progressHandler(.completed)
+        return result
     }
 }

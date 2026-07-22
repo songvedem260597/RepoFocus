@@ -74,7 +74,7 @@ struct FocusDashboardView: View {
 
                         Divider()
 
-                        LazyVStack(spacing: 2) {
+                        LazyVStack(alignment: .leading, spacing: 2) {
                             ForEach(repositories) { repository in
                                 Button {
                                     selectedRepositoryID = repository.id
@@ -84,7 +84,8 @@ struct FocusDashboardView: View {
                                         isSelected: selectedRepositoryID == repository.id
                                     )
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(RepositoryRowButtonStyle())
+                                .frame(maxWidth: .infinity)
                             }
                         }
                         .padding(Layout.grid)

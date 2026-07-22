@@ -16,12 +16,13 @@ RepoFocus is a local-first macOS app for deciding which GitHub and GitLab reposi
 - Focus projects can use either manual percentage progress or a task outline
 - Outline tasks can be checked manually or completed automatically by matching a new local commit title
 - Focus status, progress, deadlines and outlines are isolated per Git branch
-- Clone a repository from a connected GitHub/GitLab account or any HTTPS/SSH Git remote URL
+- Clone a repository from a connected GitHub/GitLab account or any HTTPS/SSH Git remote URL, with live phase and overall percentage progress
 - Local JSON persistence in Application Support
 - Reuses signed-in GitHub CLI and GitLab CLI sessions without storing duplicate tokens
 - Paginated GitHub GraphQL and GitLab REST sync
 - Local Git checks for uncommitted files, commits waiting to push, commits waiting to pull and merge conflicts
 - A local Git workspace for switching branches, committing all changes, fast-forward pulling, pushing and merging branches
+- Open a new Codex task with the selected local repository already set as its workspace
 - Safe commit recovery through `git revert`, which creates a new commit instead of rewriting published history
 - Guided merge/revert conflict resolution: keep the current or incoming version, open a file for manual editing, mark it resolved, then continue or abort
 - Automatic local checkout detection by matching GitHub/GitLab `origin` remotes, including nested GitLab groups

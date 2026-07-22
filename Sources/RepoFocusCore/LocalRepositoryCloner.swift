@@ -10,8 +10,69 @@ public struct LocalRepositoryCloneResult: Equatable, Sendable {
     }
 }
 
+public enum LocalRepositoryClonePhase: Equatable, Sendable {
+    case preparing
+    case receivingObjects
+    case resolvingDeltas
+    case checkingOutFiles
+    case completed
+}
+
+public struct LocalRepositoryCloneProgress: Equatable, Sendable {
+    public let phase: LocalRepositoryClonePhase
+    public let fractionCompleted: Double
+    public let phaseFractionCompleted: Double
+
+    public init(
+        phase: LocalRepositoryClonePhase,
+        fractionCompleted: Double,
+        phaseFractionCompleted: Double
+    ) {
+        self.phase = phase
+        self.fractionCompleted = min(max(fractionCompleted, 0), 1)
+        self.phaseFractionCompleted = min(max(phaseFractionCompleted, 0), 1)
+    }
+
+    public var percentCompleted: Int {
+        Int((fractionCompleted * 100).rounded(.down))
+    }
+
+    public var phasePercentCompleted: Int {
+        Int((phaseFractionCompleted * 100).rounded(.down))
+    }
+
+    public static let preparing = LocalRepositoryCloneProgress(
+        phase: .preparing,
+        fractionCompleted: 0,
+        phaseFractionCompleted: 0
+    )
+
+    public static let completed = LocalRepositoryCloneProgress(
+        phase: .completed,
+        fractionCompleted: 1,
+        phaseFractionCompleted: 1
+    )
+}
+
 public protocol LocalRepositoryCloning: Sendable {
-    func clone(remoteURL: String, destinationParent: String) throws -> LocalRepositoryCloneResult
+    func clone(
+        remoteURL: String,
+        destinationParent: String,
+        progressHandler: @escaping @Sendable (LocalRepositoryCloneProgress) -> Void
+    ) throws -> LocalRepositoryCloneResult
+}
+
+public extension LocalRepositoryCloning {
+    func clone(
+        remoteURL: String,
+        destinationParent: String
+    ) throws -> LocalRepositoryCloneResult {
+        try clone(
+            remoteURL: remoteURL,
+            destinationParent: destinationParent,
+            progressHandler: { _ in }
+        )
+    }
 }
 
 public enum LocalRepositoryCloneError: LocalizedError, Equatable {
@@ -48,7 +109,8 @@ public struct LocalRepositoryCloner: LocalRepositoryCloning {
 
     public func clone(
         remoteURL: String,
-        destinationParent: String
+        destinationParent: String,
+        progressHandler: @escaping @Sendable (LocalRepositoryCloneProgress) -> Void
     ) throws -> LocalRepositoryCloneResult {
         let normalizedRemote = remoteURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedRemote.isEmpty else { throw LocalRepositoryCloneError.emptyRemoteURL }
@@ -90,8 +152,25 @@ public struct LocalRepositoryCloner: LocalRepositoryCloning {
         ]) { _, new in new }
 
         do {
+            progressHandler(.preparing)
             try process.run()
-            let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+            var outputData = Data()
+            var lastProgress = LocalRepositoryCloneProgress.preparing
+            let outputHandle = outputPipe.fileHandleForReading
+
+            while true {
+                let data = outputHandle.availableData
+                guard !data.isEmpty else { break }
+                outputData.append(data)
+
+                let output = String(decoding: outputData, as: UTF8.self)
+                if let progress = Self.progress(from: output),
+                   progress.fractionCompleted >= lastProgress.fractionCompleted,
+                   progress != lastProgress {
+                    lastProgress = progress
+                    progressHandler(progress)
+                }
+            }
             process.waitUntilExit()
             let output = String(data: outputData, encoding: .utf8) ?? ""
 
@@ -102,6 +181,7 @@ public struct LocalRepositoryCloner: LocalRepositoryCloning {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 throw LocalRepositoryCloneError.commandFailed(safeMessage)
             }
+            progressHandler(.completed)
         } catch let error as LocalRepositoryCloneError {
             throw error
         } catch {
@@ -136,6 +216,57 @@ public struct LocalRepositoryCloner: LocalRepositoryCloning {
             throw LocalRepositoryCloneError.invalidRemoteURL
         }
         return folderName
+    }
+
+    static func progress(from output: String) -> LocalRepositoryCloneProgress? {
+        if let percentage = lastPercentage(after: "Filtering content:", in: output)
+            ?? lastPercentage(after: "Updating files:", in: output) {
+            let phaseFraction = Double(percentage) / 100
+            return LocalRepositoryCloneProgress(
+                phase: .checkingOutFiles,
+                fractionCompleted: 0.98 + (phaseFraction * 0.019),
+                phaseFractionCompleted: phaseFraction
+            )
+        }
+
+        if let percentage = lastPercentage(after: "Resolving deltas:", in: output) {
+            let phaseFraction = Double(percentage) / 100
+            return LocalRepositoryCloneProgress(
+                phase: .resolvingDeltas,
+                fractionCompleted: 0.80 + (phaseFraction * 0.18),
+                phaseFractionCompleted: phaseFraction
+            )
+        }
+
+        if let percentage = lastPercentage(after: "Receiving objects:", in: output) {
+            let phaseFraction = Double(percentage) / 100
+            return LocalRepositoryCloneProgress(
+                phase: .receivingObjects,
+                fractionCompleted: 0.02 + (phaseFraction * 0.78),
+                phaseFractionCompleted: phaseFraction
+            )
+        }
+
+        if output.contains("Cloning into") {
+            return LocalRepositoryCloneProgress(
+                phase: .preparing,
+                fractionCompleted: 0.02,
+                phaseFractionCompleted: 0
+            )
+        }
+        return nil
+    }
+
+    private static func lastPercentage(after label: String, in output: String) -> Int? {
+        let escapedLabel = NSRegularExpression.escapedPattern(for: label)
+        guard let expression = try? NSRegularExpression(
+            pattern: escapedLabel + #"\s+(\d{1,3})%"#
+        ) else { return nil }
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        guard let match = expression.matches(in: output, range: range).last,
+              let percentageRange = Range(match.range(at: 1), in: output),
+              let percentage = Int(output[percentageRange]) else { return nil }
+        return min(max(percentage, 0), 100)
     }
 
     private static func normalizedPath(_ path: String) -> String {

@@ -34,6 +34,10 @@ RepoFocus is a local-first macOS app for deciding which GitHub and GitLab reposi
 
 The app reads repository metadata and activity from connected GitHub and GitLab accounts. Personal tracking fields remain on this Mac.
 
+## Windows UI reference
+
+The [Windows UI reference](Docs/WindowsReference/README.md) contains consistent `@2x` screenshots of every primary tab in both Light and Dark themes, plus platform adaptation notes for the Windows implementation.
+
 ## Review daily activity
 
 1. Open **Activity** in the sidebar and choose a date.

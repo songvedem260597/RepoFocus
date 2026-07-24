@@ -1,0 +1,344 @@
+mod git;
+mod github;
+mod models;
+mod storage;
+
+use chrono::Utc;
+use models::{
+    AppData, CommitInfo, GitActionResult, GitConflictState, GitStatus, RemoteActivity, Repository,
+    ScanResult, Settings,
+};
+use storage::AppStore;
+use tauri::{Manager, State};
+
+#[tauri::command]
+fn load_data(store: State<'_, AppStore>) -> Result<AppData, String> {
+    store.snapshot()
+}
+
+#[tauri::command]
+fn save_repository(
+    store: State<'_, AppStore>,
+    mut repository: Repository,
+) -> Result<AppData, String> {
+    repository.normalize_tracking();
+    repository.tracking.modified_at = Utc::now();
+    store.upsert(repository)
+}
+
+#[tauri::command]
+fn remove_repository(store: State<'_, AppStore>, repository_id: String) -> Result<AppData, String> {
+    store.remove(&repository_id)
+}
+
+#[tauri::command]
+fn save_settings(store: State<'_, AppStore>, settings: Settings) -> Result<AppData, String> {
+    store.update_settings(settings)
+}
+
+#[tauri::command]
+async fn import_repository(store: State<'_, AppStore>, path: String) -> Result<AppData, String> {
+    let repository = tauri::async_runtime::spawn_blocking(move || git::repository_from_path(&path))
+        .await
+        .map_err(|error| error.to_string())??;
+    store.upsert(merge_with_existing(&store.snapshot()?, repository))
+}
+
+#[tauri::command]
+async fn scan_repositories(
+    store: State<'_, AppStore>,
+    root: String,
+    max_depth: u8,
+) -> Result<ScanResult, String> {
+    let result =
+        tauri::async_runtime::spawn_blocking(move || git::scan_repositories(&root, max_depth))
+            .await
+            .map_err(|error| error.to_string())??;
+    let current = store.snapshot()?;
+    for repository in &result.repositories {
+        store.upsert(merge_with_existing(&current, repository.clone()))?;
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+async fn auto_detect_local_repository(
+    store: State<'_, AppStore>,
+    repository_id: String,
+) -> Result<AppData, String> {
+    let repository = store
+        .snapshot()?
+        .repositories
+        .into_iter()
+        .find(|item| item.id == repository_id)
+        .ok_or_else(|| "KhÃ´ng tÃ¬m tháº¥y repository cáº§n kiá»ƒm tra.".to_string())?;
+    let detected_path =
+        tauri::async_runtime::spawn_blocking(move || git::locate_repository_checkout(&repository))
+            .await
+            .map_err(|error| error.to_string())??;
+
+    let Some(path) = detected_path else {
+        return store.snapshot();
+    };
+    let checked_path = path.clone();
+    let (status, local_branches) = tauri::async_runtime::spawn_blocking(move || {
+        let status = git::git_status(&checked_path)?;
+        let local_branches = git::local_branches(&checked_path).ok();
+        Ok::<_, String>((status, local_branches))
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+
+    let mut data = store.snapshot()?;
+    let target = data
+        .repositories
+        .iter_mut()
+        .find(|item| item.id == repository_id)
+        .ok_or_else(|| {
+            "Repository Ä‘Ã£ thay Ä‘á»•i trong khi Ä‘ang tÃ¬m trÃªn mÃ¡y.".to_string()
+        })?;
+    target.tracking.local_path = Some(path);
+    target.tracking.git_status = Some(status);
+    target.tracking.local_branches = local_branches;
+    target.tracking.modified_at = Utc::now();
+    store.replace(data)?;
+    store.snapshot()
+}
+
+#[tauri::command]
+async fn refresh_git(path: String) -> Result<GitStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || git::git_status(&path))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn list_commits(path: String, limit: u16) -> Result<Vec<CommitInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || git::recent_commits(&path, limit))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn list_commits_for_branch(
+    path: String,
+    branch: String,
+    limit: u16,
+) -> Result<Vec<CommitInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git::recent_commits_for_branch(&path, Some(&branch), limit)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn list_local_branches(path: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || git::local_branches(&path))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn git_action(path: String, action: String) -> Result<GitActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || git::run_action(&path, &action))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn switch_git_branch(path: String, branch: String) -> Result<GitActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || git::switch_branch(&path, &branch))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn commit_all_git_changes(path: String, message: String) -> Result<GitActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || git::commit_all(&path, &message))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn merge_git_branch(path: String, branch: String) -> Result<GitActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || git::merge_branch(&path, &branch))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn revert_git_commit(path: String, sha: String) -> Result<GitActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || git::revert_commit(&path, &sha))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn git_conflict_state(path: String) -> Result<GitConflictState, String> {
+    tauri::async_runtime::spawn_blocking(move || git::conflict_state(&path))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn resolve_git_conflict(
+    path: String,
+    file: String,
+    choice: String,
+) -> Result<GitActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || git::resolve_conflict(&path, &file, &choice))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn continue_git_conflict_operation(path: String) -> Result<GitActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || git::continue_conflict_operation(&path))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn abort_git_conflict_operation(path: String) -> Result<GitActionResult, String> {
+    tauri::async_runtime::spawn_blocking(move || git::abort_conflict_operation(&path))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn clone_repository(
+    store: State<'_, AppStore>,
+    url: String,
+    parent: String,
+) -> Result<AppData, String> {
+    let repository =
+        tauri::async_runtime::spawn_blocking(move || git::clone_repository(&url, &parent))
+            .await
+            .map_err(|error| error.to_string())??;
+    store.upsert(merge_with_existing(&store.snapshot()?, repository))
+}
+
+#[tauri::command]
+async fn sync_github(store: State<'_, AppStore>) -> Result<AppData, String> {
+    let remote_repositories = tauri::async_runtime::spawn_blocking(github::list_repositories)
+        .await
+        .map_err(|error| error.to_string())??;
+    let mut data = store.snapshot()?;
+
+    for mut remote in remote_repositories {
+        if remote.is_archived {
+            remote.tracking.status = "archived".into();
+        }
+        if let Some(existing) = data.repositories.iter_mut().find(|item| {
+            item.id.eq_ignore_ascii_case(&remote.id)
+                || item.full_name.eq_ignore_ascii_case(&remote.full_name)
+        }) {
+            let tracking = existing.tracking.clone();
+            *existing = remote;
+            existing.tracking = tracking;
+        } else {
+            data.repositories.push(remote);
+        }
+    }
+    data.last_sync_at = Some(Utc::now());
+    store.replace(data.clone())?;
+    Ok(data)
+}
+
+#[tauri::command]
+async fn github_activity(date: String) -> Result<Vec<RemoteActivity>, String> {
+    tauri::async_runtime::spawn_blocking(move || github::activity_for_date(&date))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+fn merge_with_existing(data: &AppData, mut repository: Repository) -> Repository {
+    if let Some(existing) = data.repositories.iter().find(|item| {
+        item.id.eq_ignore_ascii_case(&repository.id)
+            || item.full_name.eq_ignore_ascii_case(&repository.full_name)
+    }) {
+        let mut tracking = existing.tracking.clone();
+        tracking.local_path = repository.tracking.local_path.take();
+        tracking.git_status = repository.tracking.git_status.take();
+        tracking.local_branches = repository.tracking.local_branches.take();
+        repository.tracking = tracking;
+        repository.id = existing.id.clone();
+        if repository.description.is_none() {
+            repository.description = existing.description.clone();
+        }
+        if repository.url.is_none() {
+            repository.url = existing.url.clone();
+        }
+        if repository.primary_language.is_none() {
+            repository.primary_language = existing.primary_language.clone();
+        }
+    }
+    repository
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let data_path = app
+                .path()
+                .app_data_dir()
+                .map_err(|error| error.to_string())?
+                .join("repositories.windows.json");
+            let store = AppStore::load(data_path)?;
+            app.manage(store);
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            load_data,
+            save_repository,
+            remove_repository,
+            save_settings,
+            import_repository,
+            scan_repositories,
+            auto_detect_local_repository,
+            refresh_git,
+            list_commits,
+            list_commits_for_branch,
+            list_local_branches,
+            git_action,
+            switch_git_branch,
+            commit_all_git_changes,
+            merge_git_branch,
+            revert_git_commit,
+            git_conflict_state,
+            resolve_git_conflict,
+            continue_git_conflict_operation,
+            abort_git_conflict_operation,
+            clone_repository,
+            sync_github,
+            github_activity
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running RepoFocus");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::models::{AppData, Tracking};
+
+    #[test]
+    fn defaults_are_safe_and_empty() {
+        let data = AppData::default();
+        let tracking = Tracking::default();
+        assert!(data.repositories.is_empty());
+        assert_eq!(tracking.status, "inbox");
+        assert_eq!(tracking.priority, "medium");
+        assert_eq!(tracking.progress, 0);
+    }
+}

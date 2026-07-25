@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -384,6 +385,66 @@ impl AppData {
             repository.normalize_tracking();
         }
     }
+
+    pub fn auto_focus_repositories(
+        &mut self,
+        candidates: &HashMap<String, String>,
+        modified_at: DateTime<Utc>,
+    ) -> Vec<String> {
+        let mut candidate_ids = candidates.keys().cloned().collect::<Vec<_>>();
+        candidate_ids.sort();
+        let mut next_focus_order = self
+            .repositories
+            .iter()
+            .filter(|repository| repository.tracking.is_focused)
+            .map(|repository| repository.tracking.focus_order)
+            .max()
+            .unwrap_or(-1)
+            .saturating_add(1);
+        let mut focused_repository_ids = Vec::new();
+
+        for repository_id in candidate_ids {
+            let Some(repository) = self
+                .repositories
+                .iter_mut()
+                .find(|repository| repository.id == repository_id)
+            else {
+                continue;
+            };
+            if repository.is_archived
+                || repository.tracking.status == "archived"
+                || repository.tracking.is_focused
+            {
+                continue;
+            }
+
+            let branch = candidates
+                .get(&repository_id)
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|branch| !branch.is_empty())
+                .map(str::to_string)
+                .or_else(|| {
+                    repository
+                        .tracking
+                        .git_status
+                        .as_ref()
+                        .and_then(|status| status.branch.clone())
+                })
+                .or_else(|| repository.default_branch.clone())
+                .unwrap_or_else(|| "main".into());
+
+            repository.tracking.is_focused = true;
+            repository.tracking.focus_order = next_focus_order;
+            repository.tracking.focus_branch = Some(branch);
+            repository.tracking.modified_at = modified_at;
+            repository.normalize_tracking();
+            focused_repository_ids.push(repository_id);
+            next_focus_order = next_focus_order.saturating_add(1);
+        }
+
+        focused_repository_ids
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -419,9 +480,20 @@ pub struct RemoteActivity {
     pub committed_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoFocusResult {
+    pub data: AppData,
+    pub focused_repository_ids: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{PlanCompletionSource, Repository, RepositoryPlanItem, Tracking};
+    use super::{
+        AppData, PlanCompletionSource, Repository, RepositoryPlanItem, Settings, Tracking,
+    };
+    use chrono::Utc;
+    use std::collections::HashMap;
 
     #[test]
     fn legacy_tracking_gets_outline_defaults_without_losing_data() {
@@ -513,5 +585,87 @@ mod tests {
         assert_eq!(snapshot.branch_name, "backend");
         assert_eq!(snapshot.status, "active");
         assert_eq!(snapshot.next_action, "Ship the inspector");
+    }
+
+    #[test]
+    fn auto_focus_preserves_tracking_and_skips_archived_repositories() {
+        let repository = |id: &str, focus_order: i32| Repository {
+            id: id.into(),
+            name: id.into(),
+            full_name: format!("example/{id}"),
+            description: None,
+            url: None,
+            provider: "github".into(),
+            is_private: false,
+            is_archived: false,
+            primary_language: None,
+            default_branch: Some("main".into()),
+            open_issue_count: 0,
+            open_pull_request_count: 0,
+            pushed_at: None,
+            updated_at: Utc::now(),
+            tracking: Tracking {
+                focus_order,
+                notes: format!("notes-{id}"),
+                ..Tracking::default()
+            },
+        };
+        let mut already_focused = repository("focused", 4);
+        already_focused.tracking.is_focused = true;
+        already_focused.tracking.focus_branch = Some("existing".into());
+        let mut archived = repository("archived", 0);
+        archived.tracking.status = "archived".into();
+        let mut data = AppData {
+            version: AppData::CURRENT_VERSION,
+            repositories: vec![
+                repository("beta", 0),
+                archived,
+                already_focused,
+                repository("alpha", 0),
+            ],
+            last_sync_at: None,
+            settings: Settings::default(),
+        };
+        let candidates = HashMap::from([
+            ("beta".to_string(), "feature/beta".to_string()),
+            ("archived".to_string(), "main".to_string()),
+            ("focused".to_string(), "changed".to_string()),
+            ("alpha".to_string(), "feature/alpha".to_string()),
+        ]);
+
+        let focused = data.auto_focus_repositories(&candidates, Utc::now());
+
+        assert_eq!(focused, vec!["alpha", "beta"]);
+        let alpha = data
+            .repositories
+            .iter()
+            .find(|repository| repository.id == "alpha")
+            .expect("alpha should still exist");
+        let beta = data
+            .repositories
+            .iter()
+            .find(|repository| repository.id == "beta")
+            .expect("beta should still exist");
+        assert_eq!(alpha.tracking.focus_order, 5);
+        assert_eq!(beta.tracking.focus_order, 6);
+        assert_eq!(alpha.tracking.notes, "notes-alpha");
+        assert_eq!(
+            alpha.tracking.focus_branch.as_deref(),
+            Some("feature/alpha")
+        );
+        assert_eq!(alpha.tracking.branch_trackings.len(), 1);
+        let focused = data
+            .repositories
+            .iter()
+            .find(|repository| repository.id == "focused")
+            .expect("focused repository should still exist");
+        assert_eq!(focused.tracking.focus_order, 4);
+        assert_eq!(focused.tracking.focus_branch.as_deref(), Some("existing"));
+        let archived = data
+            .repositories
+            .iter()
+            .find(|repository| repository.id == "archived")
+            .expect("archived repository should still exist");
+        assert!(!archived.tracking.is_focused);
     }
 }

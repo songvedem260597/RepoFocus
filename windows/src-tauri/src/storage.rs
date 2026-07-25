@@ -1,5 +1,6 @@
-use crate::models::{AppData, Repository, Settings};
+use crate::models::{AppData, AutoFocusResult, GitStatus, Repository, Settings};
 use std::{
+    collections::HashMap,
     fs,
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -91,6 +92,31 @@ impl AppStore {
         }
         self.persist()?;
         self.snapshot()
+    }
+
+    pub fn apply_auto_focus(
+        &self,
+        git_statuses: HashMap<String, GitStatus>,
+        candidates: HashMap<String, String>,
+    ) -> Result<AutoFocusResult, String> {
+        let focused_repository_ids;
+        {
+            let mut data = self
+                .data
+                .lock()
+                .map_err(|_| "Không thể khóa dữ liệu RepoFocus.".to_string())?;
+            for repository in &mut data.repositories {
+                if let Some(status) = git_statuses.get(&repository.id) {
+                    repository.tracking.git_status = Some(status.clone());
+                }
+            }
+            focused_repository_ids = data.auto_focus_repositories(&candidates, chrono::Utc::now());
+        }
+        self.persist()?;
+        Ok(AutoFocusResult {
+            data: self.snapshot()?,
+            focused_repository_ids,
+        })
     }
 
     pub fn persist(&self) -> Result<(), String> {

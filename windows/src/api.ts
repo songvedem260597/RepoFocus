@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AppData,
+  AutoFocusResult,
   CommitInfo,
   GitActionResult,
   GitConflictChoice,
@@ -55,5 +56,7 @@ export const api = {
     invoke<AppData>("clone_repository", { url, parent }),
   syncGitHub: () => invoke<AppData>("sync_github"),
   githubActivity: (date: string) =>
-    invoke<RemoteActivity[]>("github_activity", { date })
+    invoke<RemoteActivity[]>("github_activity", { date }),
+  autoFocusToday: (date: string) =>
+    invoke<AutoFocusResult>("auto_focus_today", { date })
 };

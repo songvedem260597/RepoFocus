@@ -106,29 +106,45 @@ function asError(error: unknown): string {
   return "Đã xảy ra lỗi không xác định.";
 }
 
-function isOverdue(repository: Repository): boolean {
-  if (!repository.tracking.deadline || repository.tracking.status === "done") {
-    return false;
+function incompleteTaskCount(repository: Repository): number {
+  if (repositoryIsCompleted(repository)) return 0;
+  const planItems = repository.tracking.planItems ?? [];
+  if (repository.tracking.usesOutlinePlan && planItems.length) {
+    return planItems.filter((item) => !item.isCompleted).length;
   }
-  const deadline = new Date(`${repository.tracking.deadline}T00:00:00`);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return deadline.getTime() < today.getTime();
+  return 1;
 }
 
-function daysSinceLastPush(repository: Repository): number | null {
-  if (!repository.pushedAt) return null;
-  const pushedAt = new Date(repository.pushedAt).getTime();
-  if (Number.isNaN(pushedAt)) return null;
-  return Math.max(0, Math.floor((Date.now() - pushedAt) / 86_400_000));
+function isOverdue(repository: Repository): boolean {
+  const deadline = repository.tracking.deadline;
+  if (
+    !deadline ||
+    repository.isArchived ||
+    repository.tracking.status === "done" ||
+    repository.tracking.status === "archived" ||
+    repositoryIsCompleted(repository) ||
+    incompleteTaskCount(repository) === 0
+  ) {
+    return false;
+  }
+  // Store deadlines as local calendar dates. Comparing the ISO strings avoids
+  // daylight-saving/time-zone shifts around midnight.
+  return /^\d{4}-\d{2}-\d{2}$/.test(deadline) && deadline < localISODate();
+}
+
+function overdueTaskCount(repository: Repository): number {
+  return isOverdue(repository) ? incompleteTaskCount(repository) : 0;
+}
+
+function overdueTaskLabel(repository: Repository): string {
+  const openItems = repository.tracking.usesOutlinePlan
+    ? (repository.tracking.planItems ?? []).filter((item) => !item.isCompleted)
+    : [];
+  return openItems[0]?.title || repository.tracking.nextAction || "Task quá hạn";
 }
 
 function needsAttention(repository: Repository): boolean {
-  return (
-    repository.tracking.status === "blocked" ||
-    isOverdue(repository) ||
-    (repository.tracking.isFocused && (daysSinceLastPush(repository) ?? 0) >= 21)
-  );
+  return isOverdue(repository);
 }
 
 function relativeDate(value: string | null): string {
@@ -148,6 +164,10 @@ function localISODate(value = new Date()): string {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function autoFocusSuffix(count: number): string {
+  return count > 0 ? ` Đã tự thêm ${count} repo có thay đổi hôm nay vào Focus.` : "";
 }
 
 function gitHealth(status: GitStatus | null): { label: string; tone: string } {
@@ -385,13 +405,9 @@ function focusReminderKind(repository: Repository): FocusReminderKind {
   return "next";
 }
 
-function focusReminderRank(repository: Repository): number {
-  return ["overdue", "today", "blocked", "conflict", "next"].indexOf(focusReminderKind(repository));
-}
-
 function focusReminderLabel(repository: Repository): string {
   switch (focusReminderKind(repository)) {
-    case "overdue": return "Đã quá hạn";
+    case "overdue": return `Quá hạn: ${overdueTaskLabel(repository)}`;
     case "today": return "Đến hạn hôm nay";
     case "blocked": return "Đang bị chặn";
     case "conflict": return `${repository.tracking.gitStatus?.conflictCount ?? 0} xung đột`;
@@ -437,11 +453,63 @@ function App() {
   >([]);
   const searchRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<number | null>(null);
+  const lastAutoFocusCheckRef = useRef(0);
+  const overdueNoticeShownRef = useRef<string | null>(null);
 
-  const notify = useCallback((text: string, tone: "ok" | "error" = "ok") => {
+  const notify = useCallback((
+    text: string,
+    tone: "ok" | "error" = "ok",
+    durationMs = 3800
+  ) => {
     setToast({ text, tone });
-    window.setTimeout(() => setToast(null), 3800);
+    window.setTimeout(() => setToast(null), durationMs);
   }, []);
+
+  const announceOverdueTasks = useCallback((repositories: Repository[]) => {
+    const today = localISODate();
+    if (overdueNoticeShownRef.current === today) return;
+    const overdueRepositories = repositories.filter(needsAttention);
+    const taskCount = overdueRepositories.reduce(
+      (total, repository) => total + overdueTaskCount(repository),
+      0
+    );
+    if (!taskCount) return;
+
+    overdueNoticeShownRef.current = today;
+    const preview = overdueRepositories
+      .slice(0, 2)
+      .map((repository) => `${repository.name}: ${overdueTaskLabel(repository)}`)
+      .join(" · ");
+    const remaining = overdueRepositories.length - Math.min(overdueRepositories.length, 2);
+    notify(
+      `Bạn có ${taskCount} task quá hạn chưa hoàn thành`
+        + (preview ? ` — ${preview}${remaining > 0 ? ` · và ${remaining} repo khác` : ""}` : "")
+        + ". Mở “Cần chú ý” để xử lý.",
+      "error",
+      8_000
+    );
+  }, [notify]);
+
+  const runAutoFocusToday = useCallback(async (announce = true) => {
+    const result = await api.autoFocusToday(localISODate());
+    setData(result.data);
+    setSelectedId((current) => current ?? result.data.repositories[0]?.id ?? null);
+    if (announce && result.focusedRepositoryIds.length) {
+      const focusedCount = result.focusedRepositoryIds.length;
+      const focusedNames = result.focusedRepositoryIds
+        .map((repositoryId) =>
+          result.data.repositories.find((repository) => repository.id === repositoryId)?.name
+        )
+        .filter((name): name is string => Boolean(name));
+      const preview = focusedNames.slice(0, 2).join(", ");
+      const remaining = focusedCount - Math.min(focusedNames.length, 2);
+      notify(
+        `Đã tự thêm ${focusedCount} repo có thay đổi hôm nay vào Focus`
+          + (preview ? `: ${preview}${remaining > 0 ? ` và ${remaining} repo khác` : ""}.` : ".")
+      );
+    }
+    return result;
+  }, [notify]);
 
   const load = useCallback(async () => {
     try {
@@ -458,6 +526,25 @@ function App() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (loading) return;
+    const checkTodayActivity = () => {
+      const now = Date.now();
+      if (now - lastAutoFocusCheckRef.current < 60_000) return;
+      lastAutoFocusCheckRef.current = now;
+      void runAutoFocusToday(false)
+        .then((result) => announceOverdueTasks(result.data.repositories))
+        .catch((error) => notify(asError(error), "error"));
+    };
+    checkTodayActivity();
+    window.addEventListener("focus", checkTodayActivity);
+    return () => window.removeEventListener("focus", checkTodayActivity);
+  }, [announceOverdueTasks, loading, notify, runAutoFocusToday]);
+
+  useEffect(() => {
+    if (!loading) announceOverdueTasks(data.repositories);
+  }, [announceOverdueTasks, data.repositories, loading]);
 
   useEffect(() => {
     const resolvedTheme =
@@ -487,7 +574,10 @@ function App() {
       ).length,
       activity: activityCommits.length,
       all: data.repositories.length,
-      attention: data.repositories.filter(needsAttention).length,
+      attention: data.repositories.reduce(
+        (total, repository) => total + overdueTaskCount(repository),
+        0
+      ),
       done: data.repositories.filter(
         (repo) => repo.tracking.status === "done" || repo.tracking.status === "archived"
       ).length,
@@ -512,7 +602,13 @@ function App() {
       })
       .filter((repository) => {
         if (!normalizedQuery) return true;
-        return [repository.name, repository.fullName, repository.description, repository.tracking.nextAction]
+        return [
+          repository.name,
+          repository.fullName,
+          repository.description,
+          repository.tracking.nextAction,
+          ...(repository.tracking.planItems ?? []).map((item) => item.title)
+        ]
           .filter(Boolean)
           .some((value) => value!.toLocaleLowerCase("vi").includes(normalizedQuery));
       })
@@ -524,10 +620,18 @@ function App() {
           return new Date(right.pushedAt ?? right.updatedAt).getTime() -
             new Date(left.pushedAt ?? left.updatedAt).getTime();
         }
-        if (activeView === "attention" || activeView === "done") {
+        if (activeView === "attention") {
+          const leftDeadline = left.tracking.deadline ?? "9999-12-31";
+          const rightDeadline = right.tracking.deadline ?? "9999-12-31";
+          if (leftDeadline !== rightDeadline) {
+            return leftDeadline.localeCompare(rightDeadline);
+          }
           const priority = { high: 0, medium: 1, low: 2 };
           const priorityDiff = priority[left.tracking.priority] - priority[right.tracking.priority];
-          if (activeView === "attention" && priorityDiff !== 0) return priorityDiff;
+          if (priorityDiff !== 0) return priorityDiff;
+          return left.name.localeCompare(right.name, "vi", { sensitivity: "base" });
+        }
+        if (activeView === "done") {
           return new Date(right.tracking.modifiedAt).getTime() - new Date(left.tracking.modifiedAt).getTime();
         }
         if (left.tracking.isFocused !== right.tracking.isFocused) {
@@ -602,6 +706,13 @@ function App() {
   useEffect(() => {
     if (activeView === "activity") void loadActivity();
   }, [activeView, activityDate, loadActivity]);
+
+  const refreshActivity = useCallback(async () => {
+    await loadActivity();
+    if (activityDate === localISODate()) {
+      await runAutoFocusToday();
+    }
+  }, [activityDate, loadActivity, runAutoFocusToday]);
 
   useEffect(() => {
     if (!repositories.length) {
@@ -850,9 +961,10 @@ function App() {
     try {
       const next = await api.importRepository(path);
       setData(next);
-      const imported = next.repositories.find((repo) => repo.tracking.localPath === path);
+      const autoFocus = await runAutoFocusToday(false);
+      const imported = autoFocus.data.repositories.find((repo) => repo.tracking.localPath === path);
       if (imported) setSelectedId(imported.id);
-      notify("Đã thêm repository từ máy.");
+      notify(`Đã thêm repository từ máy.${autoFocusSuffix(autoFocus.focusedRepositoryIds.length)}`);
     } catch (error) {
       notify(asError(error), "error");
     } finally {
@@ -886,8 +998,9 @@ function App() {
       } else {
         setData(next);
       }
+      const autoFocus = await runAutoFocusToday(false);
       setLocalDetection("idle");
-      notify("Đã tìm thấy checkout Git trên máy.");
+      notify(`Đã tìm thấy checkout Git trên máy.${autoFocusSuffix(autoFocus.focusedRepositoryIds.length)}`);
     } catch (error) {
       setLocalDetection("idle");
       notify(asError(error), "error");
@@ -902,8 +1015,11 @@ function App() {
     setWorking("scan");
     try {
       const result = await api.scanRepositories(root, data.settings.scanDepth);
-      await load();
-      notify(`Đã tìm thấy ${result.repositories.length} Git repository.`);
+      const autoFocus = await runAutoFocusToday(false);
+      notify(
+        `Đã tìm thấy ${result.repositories.length} Git repository.`
+          + autoFocusSuffix(autoFocus.focusedRepositoryIds.length)
+      );
     } catch (error) {
       notify(asError(error), "error");
     } finally {
@@ -916,8 +1032,14 @@ function App() {
     try {
       const next = await api.syncGitHub();
       setData(next);
-      if (!selectedId && next.repositories[0]) setSelectedId(next.repositories[0].id);
-      notify(`Đã đồng bộ ${next.repositories.filter((repo) => repo.provider === "github").length} repo GitHub.`);
+      const autoFocus = await runAutoFocusToday(false);
+      if (!selectedId && autoFocus.data.repositories[0]) {
+        setSelectedId(autoFocus.data.repositories[0].id);
+      }
+      notify(
+        `Đã đồng bộ ${next.repositories.filter((repo) => repo.provider === "github").length} repo GitHub.`
+          + autoFocusSuffix(autoFocus.focusedRepositoryIds.length)
+      );
     } catch (error) {
       notify(asError(error), "error");
     } finally {
@@ -1183,13 +1305,16 @@ function App() {
     try {
       const next = await api.cloneRepository(cloneUrl, cloneParent);
       setData(next);
-      const imported = next.repositories.find((repo) => repo.tracking.localPath?.startsWith(cloneParent));
+      const autoFocus = await runAutoFocusToday(false);
+      const imported = autoFocus.data.repositories.find(
+        (repo) => repo.tracking.localPath?.startsWith(cloneParent)
+      );
       setActiveView("all");
       setQuery("");
       if (imported) setSelectedId(imported.id);
       setShowClone(false);
       setCloneUrl("");
-      notify("Clone repository thành công.");
+      notify(`Clone repository thành công.${autoFocusSuffix(autoFocus.focusedRepositoryIds.length)}`);
     } catch (error) {
       notify(asError(error), "error");
     } finally {
@@ -1296,7 +1421,7 @@ function App() {
                 : activeView === "activity"
                   ? "Push, commit và thay đổi theo từng branch"
                 : activeView === "attention"
-                  ? "Repo đang bị chặn, quá hạn hoặc lâu chưa cập nhật"
+                  ? "Các task đã quá hạn nhưng vẫn chưa hoàn thành"
                 : activeView === "done"
                   ? "Các repository đã hoàn tất"
                   : activeView === "settings"
@@ -1347,7 +1472,7 @@ function App() {
             setDate={setActivityDate}
             activity={activityCommits}
             loading={working === "activity"}
-            onRefresh={loadActivity}
+            onRefresh={refreshActivity}
           />
         ) : activeView === "settings" ? (
           <SettingsPage settings={data.settings} onSave={saveSettings} />
@@ -1364,6 +1489,7 @@ function App() {
                 repository={repository}
                 selected={repository.id === selectedId}
                 showProgress={false}
+                showDeadline={activeView === "attention"}
                 onSelect={() => setSelectedId(repository.id)}
               />
             ))
@@ -1558,7 +1684,7 @@ function App() {
                       <span>Tiến độ</span>
                       <strong>{selectedProgress}%</strong>
                     </div>
-                    {repositoryIsCompleted(selected) ? (
+                    {selected.isArchived || selected.tracking.status === "done" || selected.tracking.status === "archived" ? (
                       <span className="progress-static-bar"><i style={{ width: "100%" }} /></span>
                     ) : selected.tracking.usesOutlinePlan ? (
                       <span className="outline-progress-bar"><i style={{ width: `${selectedProgress}%` }} /></span>
@@ -2035,7 +2161,7 @@ function App() {
       )}
 
       {toast && (
-        <div className={`toast ${toast.tone}`}>
+        <div className={`toast ${toast.tone}`} role="alert" aria-live="assertive">
           {toast.tone === "ok" ? <Check size={17} /> : <AlertTriangle size={17} />}
           <span>{toast.text}</span>
           <button onClick={() => setToast(null)}><X size={15} /></button>
@@ -2071,15 +2197,20 @@ function FocusDashboard({
 }) {
   const [expandedPlannerId, setExpandedPlannerId] = useState<string | null>(null);
   const attention = [...repositories]
-    .filter((repository) => !["done", "archived", "paused"].includes(repository.tracking.status))
+    .filter(needsAttention)
     .sort((left, right) => {
-      const urgency = focusReminderRank(left) - focusReminderRank(right);
-      if (urgency) return urgency;
+      const leftDeadline = left.tracking.deadline ?? "9999-12-31";
+      const rightDeadline = right.tracking.deadline ?? "9999-12-31";
+      if (leftDeadline !== rightDeadline) return leftDeadline.localeCompare(rightDeadline);
       const priority = { high: 0, medium: 1, low: 2 };
       const priorityDifference = priority[left.tracking.priority] - priority[right.tracking.priority];
       if (priorityDifference) return priorityDifference;
       return left.tracking.focusOrder - right.tracking.focusOrder;
     });
+  const overdueTaskTotal = attention.reduce(
+    (total, repository) => total + overdueTaskCount(repository),
+    0
+  );
   const active = repositories.filter((repo) => repo.tracking.status === "active").length;
   const blocked = repositories.filter((repo) => repo.tracking.status === "blocked").length;
   const openPullRequests = repositories.reduce(
@@ -2102,10 +2233,10 @@ function FocusDashboard({
           <div className="attention-header">
             <div className="metric-icon amber"><Bell size={19} fill="currentColor" /></div>
             <div>
-              <strong>Cần chú ý hôm nay</strong>
-              <span>Ưu tiên theo hạn chót, trạng thái và xung đột của branch.</span>
+              <strong>Task quá hạn chưa hoàn thành</strong>
+              <span>Chỉ hiển thị task đã quá hạn nhưng chưa hoàn thành.</span>
             </div>
-            <em>{attention.length} dự án</em>
+            <em>{overdueTaskTotal} task</em>
           </div>
           {attention.slice(0, 4).map((repository) => {
             const ReminderIcon = focusReminderIcon(repository);
@@ -2162,6 +2293,7 @@ function FocusDashboard({
             repository={repository}
             selected={selectedId === repository.id}
             showProgress
+            showDeadline={false}
             onSelect={() => onSelect(repository.id)}
           />
         ))}
@@ -2808,11 +2940,13 @@ function RepoRow({
   repository,
   selected,
   showProgress,
+  showDeadline = false,
   onSelect
 }: {
   repository: Repository;
   selected: boolean;
   showProgress: boolean;
+  showDeadline?: boolean;
   onSelect: () => void;
 }) {
   const health = gitHealth(repository.tracking.gitStatus);
@@ -2890,7 +3024,13 @@ function RepoRow({
           <span><CircleDot size={11} /> {repository.openIssueCount}</span>
           <span><GitPullRequest size={11} /> {repository.openPullRequestCount}</span>
         </div>
-        <span>{lastPushLabel(repository)}</span>
+        {showDeadline && repository.tracking.deadline ? (
+          <span title={`Hạn chót ${repository.tracking.deadline}`}>
+            <Bell size={11} /> Quá hạn {repository.tracking.deadline}
+          </span>
+        ) : (
+          <span>{lastPushLabel(repository)}</span>
+        )}
       </div>
     </article>
   );
@@ -3049,8 +3189,8 @@ function EmptyState({
         }
       : view === "attention"
         ? {
-            title: "Mọi thứ đang ổn",
-            message: "Không có repo ưu tiên nào bị chặn, quá hạn hoặc lâu chưa cập nhật.",
+            title: "Không có task quá hạn",
+            message: "Không có task nào quá hạn mà vẫn chưa hoàn thành.",
             icon: <Box size={42} />
           }
         : view === "done"

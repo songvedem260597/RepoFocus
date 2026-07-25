@@ -133,4 +133,9 @@ export interface RemoteActivity {
   committedAt: string;
 }
 
+export interface AutoFocusResult {
+  data: AppData;
+  focusedRepositoryIds: string[];
+}
+
 export type ViewKey = "focus" | "activity" | "all" | "attention" | "done" | "settings";

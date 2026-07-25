@@ -1,7 +1,7 @@
 use crate::models::{
     CommitInfo, GitActionResult, GitConflictState, GitStatus, Repository, ScanResult, Tracking,
 };
-use chrono::{TimeZone, Utc};
+use chrono::{NaiveDate, TimeZone, Utc};
 use std::{
     collections::{HashSet, VecDeque},
     ffi::OsStr,
@@ -102,6 +102,53 @@ pub fn git_status(path: &str) -> Result<GitStatus, String> {
 
 pub fn recent_commits(path: &str, limit: u16) -> Result<Vec<CommitInfo>, String> {
     recent_commits_for_branch(path, None, limit)
+}
+
+#[derive(Debug)]
+pub struct LocalRepositoryActivity {
+    pub status: GitStatus,
+    pub has_code_changes: bool,
+}
+
+pub fn local_activity_on_date(
+    path: &str,
+    date: NaiveDate,
+) -> Result<LocalRepositoryActivity, String> {
+    let status = git_status(path)?;
+    let has_commit = has_commit_on_date(path, date)?;
+    let has_code_changes = has_commit || status.changed_file_count > 0 || status.ahead_count > 0;
+    Ok(LocalRepositoryActivity {
+        status,
+        has_code_changes,
+    })
+}
+
+fn has_commit_on_date(path: &str, date: NaiveDate) -> Result<bool, String> {
+    let path = validate_repo(path)?;
+    let next_date = date
+        .succ_opt()
+        .ok_or_else(|| "Ngày kiểm tra Git không hợp lệ.".to_string())?;
+    let since = format!("--since={date} 00:00:00");
+    let until = format!("--until={next_date} 00:00:00");
+    let output = command_output([
+        OsStr::new("-C"),
+        path.as_os_str(),
+        OsStr::new("log"),
+        OsStr::new("--branches"),
+        OsStr::new("HEAD"),
+        OsStr::new("-1"),
+        OsStr::new("--format=%H"),
+        OsStr::new(&since),
+        OsStr::new(&until),
+    ])?;
+    if !output.status.success() {
+        let error = output_error(&output);
+        if error.contains("does not have any commits") {
+            return Ok(false);
+        }
+        return Err(error);
+    }
+    Ok(!output_text(&output).is_empty())
 }
 
 /// Reads commits from a selected local branch so outline tasks stay tied to
@@ -764,9 +811,11 @@ fn should_skip(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        commit_all, conflict_state, continue_conflict_operation, local_branches, merge_branch,
-        recent_commits_for_branch, resolve_conflict, revert_commit, run_action, switch_branch,
+        commit_all, conflict_state, continue_conflict_operation, has_commit_on_date,
+        local_activity_on_date, local_branches, merge_branch, recent_commits_for_branch,
+        resolve_conflict, revert_commit, run_action, switch_branch,
     };
+    use chrono::Local;
     use std::{
         fs,
         path::{Path, PathBuf},
@@ -929,5 +978,28 @@ mod tests {
                 .sequence,
             "none"
         );
+    }
+
+    #[test]
+    fn local_activity_detects_today_commits_and_dirty_worktrees() {
+        let temporary = TemporaryRepository::create();
+        let repository = temporary.repository();
+        let repository_text = repository.to_string_lossy().to_string();
+        let today = Local::now().date_naive();
+        let previous_day = today
+            .pred_opt()
+            .expect("the current date should have a previous day");
+
+        assert!(has_commit_on_date(&repository_text, today)
+            .expect("today's commit activity should be checked"));
+        assert!(!has_commit_on_date(&repository_text, previous_day)
+            .expect("the previous day should be checked"));
+
+        fs::write(repository.join("dirty.txt"), "work in progress\n")
+            .expect("dirty worktree file should be written");
+        let activity = local_activity_on_date(&repository_text, previous_day)
+            .expect("local activity should be readable");
+        assert!(activity.has_code_changes);
+        assert_eq!(activity.status.changed_file_count, 1);
     }
 }

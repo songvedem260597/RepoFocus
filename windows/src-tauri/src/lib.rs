@@ -3,11 +3,12 @@ mod github;
 mod models;
 mod storage;
 
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use models::{
-    AppData, CommitInfo, GitActionResult, GitConflictState, GitStatus, RemoteActivity, Repository,
-    ScanResult, Settings,
+    AppData, AutoFocusResult, CommitInfo, GitActionResult, GitConflictState, GitStatus,
+    RemoteActivity, Repository, ScanResult, Settings,
 };
+use std::collections::HashMap;
 use storage::AppStore;
 use tauri::{Manager, State};
 
@@ -253,6 +254,84 @@ async fn github_activity(date: String) -> Result<Vec<RemoteActivity>, String> {
         .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+async fn auto_focus_today(
+    store: State<'_, AppStore>,
+    date: String,
+) -> Result<AutoFocusResult, String> {
+    let target_date = NaiveDate::parse_from_str(&date, "%Y-%m-%d")
+        .map_err(|_| "Ngày tự kiểm tra Focus không hợp lệ.".to_string())?;
+    let snapshot = store.snapshot()?;
+    let local_repositories = snapshot
+        .repositories
+        .iter()
+        .filter_map(|repository| {
+            repository
+                .tracking
+                .local_path
+                .clone()
+                .map(|path| (repository.id.clone(), path))
+        })
+        .collect::<Vec<_>>();
+    let should_check_github = snapshot
+        .repositories
+        .iter()
+        .any(|repository| repository.provider.eq_ignore_ascii_case("github"));
+
+    let local_task = tauri::async_runtime::spawn_blocking(move || {
+        local_repositories
+            .into_iter()
+            .filter_map(|(repository_id, path)| {
+                git::local_activity_on_date(&path, target_date)
+                    .ok()
+                    .map(|activity| (repository_id, activity))
+            })
+            .collect::<Vec<_>>()
+    });
+    let remote_task = should_check_github.then(|| {
+        let remote_date = date.clone();
+        tauri::async_runtime::spawn_blocking(move || github::activity_for_date(&remote_date))
+    });
+
+    let local_activity = local_task.await.map_err(|error| error.to_string())?;
+    let mut remote_activity = match remote_task {
+        Some(task) => match task.await {
+            Ok(Ok(activity)) => activity,
+            _ => Vec::new(),
+        },
+        None => Vec::new(),
+    };
+
+    let mut git_statuses = HashMap::new();
+    let mut candidates = HashMap::new();
+    for (repository_id, activity) in local_activity {
+        let branch = activity.status.branch.clone().unwrap_or_default();
+        if activity.has_code_changes {
+            candidates.insert(repository_id.clone(), branch);
+        }
+        git_statuses.insert(repository_id, activity.status);
+    }
+
+    remote_activity.sort_by(|left, right| right.committed_at.cmp(&left.committed_at));
+    let current = store.snapshot()?;
+    let mut remote_candidates = HashMap::new();
+    for activity in remote_activity {
+        let Some(repository) = current.repositories.iter().find(|repository| {
+            repository
+                .full_name
+                .eq_ignore_ascii_case(&activity.repository_full_name)
+        }) else {
+            continue;
+        };
+        remote_candidates
+            .entry(repository.id.clone())
+            .or_insert(activity.branch);
+    }
+    candidates.extend(remote_candidates);
+
+    store.apply_auto_focus(git_statuses, candidates)
+}
+
 fn merge_with_existing(data: &AppData, mut repository: Repository) -> Repository {
     if let Some(existing) = data.repositories.iter().find(|item| {
         item.id.eq_ignore_ascii_case(&repository.id)
@@ -322,7 +401,8 @@ pub fn run() {
             abort_git_conflict_operation,
             clone_repository,
             sync_github,
-            github_activity
+            github_activity,
+            auto_focus_today
         ])
         .run(tauri::generate_context!())
         .expect("error while running RepoFocus");

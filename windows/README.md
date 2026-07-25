@@ -33,5 +33,10 @@ Outputs:
 - Rust runs local Git commands off the UI thread and persists tracking data under the current user's app-data directory.
 - The app uses the system WebView2 runtime, keeping the installer and memory footprint smaller than an Electron bundle.
 - Release builds enable LTO, size optimization, panic abort, and symbol stripping.
+- On launch and when the app regains focus, repositories with local commits today,
+  uncommitted files, unpushed commits, or GitHub push activity today are
+  automatically added to Focus. Archived repositories are never reactivated.
+- The Attention view contains only overdue, incomplete tasks and shows an
+  in-app alert with a short task summary when the app opens.
 
 Personal status, priority, progress, deadlines, notes, and local paths stay on the Windows machine.

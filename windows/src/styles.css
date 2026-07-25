@@ -22,6 +22,7 @@
   --progress-mid: #ff9f0a;
   --progress-done: #30d158;
   --radius: 8px;
+  --font-size-min: 12px;
   font-family: "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -158,7 +159,7 @@ button:disabled {
   transform: translate(8px, -28px);
   color: var(--tertiary);
   content: "KHÔNG GIAN LÀM VIỆC";
-  font-size: 9px;
+  font-size: var(--font-size-min);
   font-weight: 650;
   letter-spacing: 0.7px;
 }
@@ -223,7 +224,7 @@ button:disabled {
 .nav-item span {
   overflow: hidden;
   flex: 1;
-  font-size: 11.5px;
+  font-size: var(--font-size-min);
   font-weight: 550;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -237,7 +238,7 @@ button:disabled {
   border: 1px solid color-mix(in srgb, var(--strong-border) 75%, transparent);
   border-radius: 9px;
   background: color-mix(in srgb, var(--elevated) 80%, transparent);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   font-style: normal;
   font-variant-numeric: tabular-nums;
   line-height: 16px;
@@ -287,7 +288,7 @@ button:disabled {
 
 .connection-card strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 550;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -296,7 +297,7 @@ button:disabled {
 .connection-card span {
   overflow: hidden;
   color: var(--secondary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -363,7 +364,7 @@ button:disabled {
   background: var(--subtle);
   box-shadow: 0 1px 1px var(--shadow);
   cursor: default;
-  font-size: 11.5px;
+  font-size: var(--font-size-min);
   font-weight: 600;
   transition: border-color 120ms ease, background 120ms ease, transform 80ms ease;
 }
@@ -508,7 +509,7 @@ button:disabled {
 .attention-header span {
   overflow: hidden;
   color: var(--secondary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -520,7 +521,7 @@ button:disabled {
   color: var(--warning);
   border-radius: 12px;
   background: color-mix(in srgb, var(--warning) 12%, transparent);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   font-style: normal;
   font-weight: 700;
   line-height: 24px;
@@ -552,7 +553,7 @@ button:disabled {
 .attention-reminder > button > strong,
 .attention-reminder > button > span:nth-last-child(2) {
   overflow: hidden;
-  font-size: 10px;
+  font-size: var(--font-size-min);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -593,7 +594,7 @@ button:disabled {
   color: var(--secondary);
   border-radius: 10px;
   background: var(--subtle);
-  font-size: 9px;
+  font-size: var(--font-size-min);
 }
 
 .focus-stats,
@@ -659,7 +660,7 @@ button:disabled {
 
 .metric-card span {
   color: var(--secondary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   font-weight: 550;
 }
 
@@ -678,12 +679,12 @@ button:disabled {
 }
 
 .panel-heading strong {
-  font-size: 11px;
+  font-size: var(--font-size-min);
 }
 
 .panel-heading span {
   color: var(--secondary);
-  font-size: 9px;
+  font-size: var(--font-size-min);
 }
 
 .daily-summary {
@@ -711,7 +712,7 @@ button:disabled {
 .daily-summary span {
   overflow: hidden;
   color: var(--secondary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   text-overflow: ellipsis;
   text-transform: capitalize;
   white-space: nowrap;
@@ -793,13 +794,13 @@ button:disabled {
 }
 
 .focus-reminder-planner-title strong {
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
 }
 
 .focus-reminder-planner-title small,
 .focus-reminder-planner > p {
   color: var(--tertiary);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   line-height: 1.35;
 }
 
@@ -812,7 +813,7 @@ button:disabled {
   color: var(--secondary);
   border-radius: 9px;
   background: var(--subtle);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   font-style: normal;
   font-weight: 650;
   white-space: nowrap;
@@ -875,7 +876,7 @@ button:disabled {
 .focus-reminder-task strong {
   overflow: hidden;
   flex: 1;
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -895,7 +896,7 @@ button:disabled {
   border-radius: 5px;
   outline: 0;
   background: var(--subtle);
-  font-size: 9px;
+  font-size: var(--font-size-min);
 }
 
 .planner-remove-task {
@@ -917,7 +918,7 @@ button:disabled {
   border-radius: 6px;
   outline: 0;
   background: var(--subtle);
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .focus-reminder-add-task select {
@@ -933,7 +934,7 @@ button:disabled {
   color: #fff;
   border-radius: 6px;
   background: var(--accent);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   font-weight: 700;
 }
 
@@ -953,7 +954,7 @@ button:disabled {
   padding: 8px 12px;
   color: var(--secondary);
   border-top: 1px solid var(--border);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-weight: 550;
 }
 
@@ -976,7 +977,7 @@ button:disabled {
   gap: 4px;
   padding: 0 10px;
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
@@ -1029,7 +1030,7 @@ button:disabled {
   width: auto;
   padding: 0 10px;
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
@@ -1057,7 +1058,7 @@ button:disabled {
 
 .calendar-popover-header strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 700;
   text-align: center;
   text-overflow: ellipsis;
@@ -1103,7 +1104,7 @@ button:disabled {
   height: 24px;
   place-items: center;
   color: var(--secondary);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 700;
 }
 
@@ -1119,7 +1120,7 @@ button:disabled {
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
@@ -1156,7 +1157,7 @@ button:disabled {
   padding: 0;
   color: var(--text);
   background: transparent;
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 600;
   text-align: left;
 }
@@ -1187,7 +1188,7 @@ button:disabled {
 
 .deadline-row > span {
   color: var(--secondary);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 550;
 }
 
@@ -1211,7 +1212,7 @@ button:disabled {
 .activity-hint {
   margin: 13px 3px;
   color: var(--secondary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .activity-hint::before {
@@ -1223,7 +1224,7 @@ button:disabled {
   border: 1px solid var(--strong-border);
   border-radius: 50%;
   content: "i";
-  font-size: 9px;
+  font-size: var(--font-size-min);
 }
 
 .activity-groups {
@@ -1251,14 +1252,14 @@ button:disabled {
 
 .activity-group > header strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--font-size-min);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .activity-group > header > span {
   color: var(--secondary);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   white-space: nowrap;
 }
 
@@ -1272,7 +1273,7 @@ button:disabled {
   color: var(--secondary);
   border-radius: 11px;
   background: var(--subtle);
-  font-size: 8.5px;
+  font-size: var(--font-size-min);
   text-transform: capitalize;
 }
 
@@ -1296,7 +1297,7 @@ button:disabled {
 }
 
 .activity-commit .commit-time {
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
@@ -1305,12 +1306,12 @@ button:disabled {
   color: var(--secondary);
   border-radius: 4px;
   background: var(--subtle);
-  font-size: 8px;
+  font-size: var(--font-size-min);
 }
 
 .activity-commit strong {
   overflow: hidden;
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1318,7 +1319,7 @@ button:disabled {
 
 .activity-commit em {
   color: var(--accent);
-  font-size: 8.5px;
+  font-size: var(--font-size-min);
   font-style: normal;
   font-weight: 600;
 }
@@ -1340,7 +1341,7 @@ button:disabled {
 }
 
 .activity-empty span {
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .settings-page {
@@ -1372,7 +1373,7 @@ button:disabled {
 
 .settings-panel-title span {
   color: var(--secondary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .settings-divider {
@@ -1384,7 +1385,7 @@ button:disabled {
 .settings-panel > label {
   display: block;
   margin: 12px 0 7px;
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
@@ -1403,7 +1404,7 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--subtle);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
@@ -1427,13 +1428,13 @@ button:disabled {
 }
 
 .scan-depth-setting strong {
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
 }
 
 .scan-depth-setting span,
 .settings-note {
   color: var(--secondary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   line-height: 1.45;
 }
 
@@ -1477,7 +1478,7 @@ button:disabled {
 .inspector-placeholder span {
   max-width: 270px;
   color: var(--secondary);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   line-height: 1.45;
 }
 
@@ -1563,7 +1564,7 @@ button:disabled {
   border-radius: 10px;
   background: color-mix(in srgb, var(--secondary) 10%, transparent);
   color: var(--secondary);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1571,7 +1572,7 @@ button:disabled {
 
 .git-pill em {
   color: var(--secondary);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   font-style: normal;
 }
 
@@ -1607,7 +1608,7 @@ button:disabled {
   overflow: hidden;
   width: 100%;
   color: var(--tertiary);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1616,7 +1617,7 @@ button:disabled {
   height: 17px;
   max-width: 142px;
   padding: 0 5px;
-  font-size: 8.7px;
+  font-size: var(--font-size-min);
 }
 
 .git-pill.success,
@@ -1652,7 +1653,7 @@ button:disabled {
 }
 
 .repo-progress strong {
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1677,7 +1678,7 @@ button:disabled {
   align-items: flex-end;
   gap: 6px;
   color: var(--secondary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .repo-meta > div {
@@ -1810,7 +1811,7 @@ button:disabled {
 .repo-provider-line {
   gap: 8px;
   color: var(--secondary);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
@@ -1847,12 +1848,12 @@ button:disabled {
   height: 21px;
   max-width: 142px;
   flex: 0 1 auto;
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .git-pill {
   padding: 0 6px;
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .repo-next-line {
@@ -1867,7 +1868,7 @@ button:disabled {
 .next-action {
   flex: 1;
   color: var(--secondary);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
 }
 
 .next-action.empty {
@@ -1882,7 +1883,7 @@ button:disabled {
 }
 
 .repo-progress strong {
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
 }
 
 .repo-progress > span {
@@ -1891,7 +1892,7 @@ button:disabled {
 
 .repo-meta {
   gap: 7px;
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
 }
 
 .repo-meta > div {
@@ -1937,7 +1938,7 @@ button:disabled {
   display: block;
   overflow: hidden;
   color: var(--secondary);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1945,7 +1946,7 @@ button:disabled {
 .repo-description {
   margin: 15px 0;
   color: var(--secondary);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   line-height: 1.45;
   user-select: text;
 }
@@ -1969,7 +1970,7 @@ button:disabled {
 .inspector-section h3 {
   margin: 0 0 12px;
   color: var(--tertiary);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   font-weight: 700;
   letter-spacing: 0.75px;
   text-transform: uppercase;
@@ -1988,7 +1989,7 @@ button:disabled {
 .stacked-field > span,
 .progress-heading > span {
   color: var(--secondary);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   font-weight: 550;
 }
 
@@ -2049,7 +2050,7 @@ button:disabled {
   color: var(--secondary);
   border-radius: 5px;
   background: transparent;
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
@@ -2085,7 +2086,7 @@ button:disabled {
 
 .progress-heading strong {
   color: var(--progress-color, var(--accent));
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2150,7 +2151,7 @@ button:disabled {
   align-items: center;
   gap: 8px;
   color: var(--tertiary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .git-branch-line,
@@ -2164,13 +2165,13 @@ button:disabled {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
 .git-branch-line > span:last-child {
   color: var(--secondary);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   font-weight: 450;
 }
 
@@ -2179,7 +2180,7 @@ button:disabled {
   gap: 7px;
   margin-top: 9px;
   color: var(--secondary);
-  font-size: 9px;
+  font-size: var(--font-size-min);
 }
 
 .git-metrics > span {
@@ -2209,7 +2210,7 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--subtle);
-  font-size: 9px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
@@ -2228,7 +2229,7 @@ button:disabled {
   padding: 0 2px;
   color: var(--secondary);
   background: transparent;
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-weight: 600;
   text-align: left;
 }
@@ -2258,7 +2259,7 @@ button:disabled {
 
 .commit-item code {
   color: var(--accent);
-  font-size: 9px;
+  font-size: var(--font-size-min);
 }
 
 .commit-item div {
@@ -2274,19 +2275,19 @@ button:disabled {
 }
 
 .commit-item strong {
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   font-weight: 550;
 }
 
 .commit-item span {
   margin-top: 2px;
   color: var(--tertiary);
-  font-size: 8.5px;
+  font-size: var(--font-size-min);
 }
 
 .muted-copy {
   color: var(--tertiary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .link-local,
@@ -2305,12 +2306,12 @@ button:disabled {
 .link-local strong,
 .no-selection strong {
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--font-size-min);
 }
 
 .link-local span,
 .no-selection span {
-  font-size: 10px;
+  font-size: var(--font-size-min);
   line-height: 1.4;
 }
 
@@ -2334,7 +2335,7 @@ button:disabled {
   color: var(--danger);
   border-radius: 6px;
   background: transparent;
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .danger-button:hover {
@@ -2390,7 +2391,7 @@ button:disabled {
   color: var(--text);
   border-radius: 10px;
   background: color-mix(in srgb, var(--secondary) 10%, transparent);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
@@ -2427,7 +2428,7 @@ button:disabled {
   border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border));
   border-radius: 7px;
   background: color-mix(in srgb, var(--accent) 8%, transparent);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 650;
   white-space: nowrap;
 }
@@ -2463,7 +2464,7 @@ button:disabled {
   align-items: center;
   gap: 4px;
   color: var(--secondary);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
@@ -2485,7 +2486,7 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--subtle);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
@@ -2506,7 +2507,7 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--subtle);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   font-weight: 650;
   text-align: left;
 }
@@ -2524,7 +2525,7 @@ button:disabled {
 .workspace-safety-copy {
   margin: 11px 0 0;
   color: var(--tertiary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   line-height: 1.4;
 }
 
@@ -2540,7 +2541,7 @@ button:disabled {
   border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border));
   border-radius: 7px;
   background: color-mix(in srgb, var(--danger) 9%, transparent);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   font-weight: 650;
   text-align: left;
 }
@@ -2557,7 +2558,7 @@ button:disabled {
 .workspace-dialog-note {
   margin: 11px 0 0;
   color: var(--secondary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   line-height: 1.45;
 }
 
@@ -2567,7 +2568,7 @@ button:disabled {
 
 .workspace-dialog-note code {
   color: var(--accent);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .workspace-commit-message textarea {
@@ -2602,7 +2603,7 @@ button:disabled {
   display: block;
   overflow: hidden;
   color: var(--text);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2617,7 +2618,7 @@ button:disabled {
 .conflict-file .secondary-button {
   height: 29px;
   padding: 0 8px;
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .conflict-clear-state {
@@ -2630,7 +2631,7 @@ button:disabled {
   border: 1px solid color-mix(in srgb, var(--success) 24%, var(--border));
   border-radius: 7px;
   background: color-mix(in srgb, var(--success) 8%, transparent);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
@@ -2644,7 +2645,7 @@ button:disabled {
 
 .conflict-operation-actions > .primary-button {
   height: 32px;
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .workspace-abort-button {
@@ -2656,7 +2657,7 @@ button:disabled {
   color: var(--danger);
   border-radius: 6px;
   background: transparent;
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
@@ -2675,7 +2676,7 @@ button:disabled {
 .conflict-abort-confirmation p {
   margin: 0;
   color: var(--text);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   line-height: 1.4;
 }
 
@@ -2689,7 +2690,7 @@ button:disabled {
 .conflict-abort-confirmation .secondary-button,
 .conflict-abort-confirmation .commit-revert-confirm {
   height: 29px;
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .workspace-history-loading {
@@ -2699,7 +2700,7 @@ button:disabled {
   justify-content: center;
   gap: 8px;
   color: var(--secondary);
-  font-size: 11px;
+  font-size: var(--font-size-min);
 }
 
 .history-modal .commit-list {
@@ -2732,7 +2733,7 @@ button:disabled {
 .history-modal .commit-item code {
   padding-top: 1px;
   color: var(--accent);
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .history-modal .commit-item strong,
@@ -2744,14 +2745,14 @@ button:disabled {
 }
 
 .history-modal .commit-item strong {
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
 .history-modal .commit-item span {
   margin-top: 3px;
   color: var(--tertiary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .commit-revert-button {
@@ -2764,7 +2765,7 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--panel);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
@@ -2784,7 +2785,7 @@ button:disabled {
 .commit-revert-confirmation p {
   margin: 0;
   color: var(--text);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   line-height: 1.4;
 }
 
@@ -2798,7 +2799,7 @@ button:disabled {
 .commit-revert-confirmation .secondary-button,
 .commit-revert-confirm {
   height: 29px;
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .commit-revert-confirm {
@@ -2824,12 +2825,12 @@ button:disabled {
   gap: 12px;
   margin-top: 14px;
   color: var(--tertiary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .history-modal-footer .secondary-button {
   height: 30px;
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .inspector-section {
@@ -2838,14 +2839,14 @@ button:disabled {
 
 .inspector-section h3 {
   margin-bottom: 13px;
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .field-row > span,
 .stacked-field > span,
 .progress-heading > span,
 .inspector-field-label {
-  font-size: 11px;
+  font-size: var(--font-size-min);
 }
 
 .inspector-progress {
@@ -2859,7 +2860,7 @@ button:disabled {
 .inspector-help {
   margin: -5px 0 12px;
   color: var(--tertiary);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   line-height: 1.4;
 }
 
@@ -2890,7 +2891,7 @@ button:disabled {
   border: 0;
   outline: 0;
   background: transparent;
-  font-size: 11px;
+  font-size: var(--font-size-min);
 }
 
 .local-git-actions {
@@ -2903,12 +2904,12 @@ button:disabled {
 
 .local-git-actions .secondary-button {
   height: 32px;
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
 }
 
 .local-git-actions > span {
   color: var(--secondary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   text-align: right;
 }
 
@@ -2934,12 +2935,12 @@ button:disabled {
 
 .local-git-empty strong {
   color: var(--secondary);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
 }
 
 .local-git-empty span {
   color: var(--tertiary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   line-height: 1.35;
 }
 
@@ -2948,7 +2949,7 @@ button:disabled {
   justify-self: start;
   height: 32px;
   margin-top: 2px;
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
 }
 
 .repository-metadata {
@@ -2964,14 +2965,14 @@ button:disabled {
   justify-content: space-between;
   gap: 16px;
   color: var(--secondary);
-  font-size: 11px;
+  font-size: var(--font-size-min);
 }
 
 .metadata-row strong {
   overflow: hidden;
   min-width: 0;
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 600;
   text-align: right;
   text-overflow: ellipsis;
@@ -2996,7 +2997,7 @@ button:disabled {
 .focus-branch-field > span,
 .plan-mode-field > span {
   color: var(--secondary);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
@@ -3021,13 +3022,13 @@ button:disabled {
   outline: 0;
   background: transparent;
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 600;
 }
 
 .focus-branch-field small {
   color: var(--tertiary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   line-height: 1.35;
 }
 
@@ -3048,7 +3049,7 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--subtle);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 600;
   text-align: left;
 }
@@ -3121,7 +3122,7 @@ button:disabled {
   outline: 0;
   background: transparent;
   color: var(--text);
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .focus-control-options {
@@ -3141,7 +3142,7 @@ button:disabled {
   color: var(--secondary);
   border-radius: 5px;
   background: transparent;
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   font-weight: 550;
   text-align: left;
 }
@@ -3167,7 +3168,7 @@ button:disabled {
 .focus-control-empty {
   padding: 8px;
   color: var(--tertiary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
 }
 
 .outline-progress-bar {
@@ -3231,7 +3232,7 @@ button:disabled {
   color: var(--secondary);
   border-radius: 5px;
   background: transparent;
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
@@ -3256,12 +3257,12 @@ button:disabled {
 }
 
 .outline-editor-heading strong {
-  font-size: 11px;
+  font-size: var(--font-size-min);
 }
 
 .outline-editor-heading span {
   color: var(--secondary);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
@@ -3308,7 +3309,7 @@ button:disabled {
 }
 
 .plan-item-copy > strong {
-  font-size: 11px;
+  font-size: var(--font-size-min);
   font-weight: 650;
   line-height: 1.25;
 }
@@ -3321,7 +3322,7 @@ button:disabled {
 .plan-item-copy > span {
   overflow: hidden;
   color: var(--secondary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3337,7 +3338,7 @@ button:disabled {
   border: 1px solid var(--border);
   border-radius: 5px;
   background: var(--panel);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .plan-item-remove {
@@ -3365,7 +3366,7 @@ button:disabled {
   color: var(--secondary);
   border-radius: 7px;
   background: var(--subtle);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   line-height: 1.35;
 }
 
@@ -3384,7 +3385,7 @@ button:disabled {
   border-radius: 6px;
   outline: 0;
   background: var(--subtle);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
 }
 
 .outline-add-row button {
@@ -3401,7 +3402,7 @@ button:disabled {
 .outline-help {
   margin: 8px 0 0;
   color: var(--tertiary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
   line-height: 1.35;
 }
 
@@ -3414,7 +3415,7 @@ button:disabled {
   color: var(--secondary);
   border-radius: 11px;
   background: color-mix(in srgb, var(--secondary) 9%, transparent);
-  font-size: 10px;
+  font-size: var(--font-size-min);
   font-weight: 650;
 }
 
@@ -3483,7 +3484,7 @@ button:disabled {
   max-width: 360px;
   margin: 0;
   color: var(--secondary);
-  font-size: 11px;
+  font-size: var(--font-size-min);
   line-height: 1.5;
 }
 
@@ -3588,7 +3589,7 @@ button:disabled {
 .modal-copy {
   margin: -5px 0 17px;
   color: var(--secondary);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   line-height: 1.45;
 }
 
@@ -3622,12 +3623,12 @@ button:disabled {
 }
 
 .setting-row strong {
-  font-size: 11px;
+  font-size: var(--font-size-min);
 }
 
 .setting-row span {
   color: var(--secondary);
-  font-size: 9.5px;
+  font-size: var(--font-size-min);
 }
 
 .setting-row select {
@@ -3652,12 +3653,12 @@ button:disabled {
 }
 
 .about-card strong {
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
 }
 
 .about-card span {
   color: var(--secondary);
-  font-size: 9px;
+  font-size: var(--font-size-min);
 }
 
 .toast {
@@ -3676,7 +3677,7 @@ button:disabled {
   border-radius: 8px;
   background: var(--elevated);
   box-shadow: 0 10px 35px rgba(0, 0, 0, 0.34);
-  font-size: 10.5px;
+  font-size: var(--font-size-min);
   animation: toast-in 170ms ease-out;
   user-select: text;
 }

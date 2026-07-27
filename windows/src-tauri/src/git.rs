@@ -110,6 +110,22 @@ pub struct LocalRepositoryActivity {
     pub has_code_changes: bool,
 }
 
+#[derive(Debug)]
+pub struct LocalRepositoryState {
+    pub repository_id: String,
+    pub path: String,
+    pub status: GitStatus,
+    pub local_branches: Option<Vec<String>>,
+}
+
+#[derive(Debug)]
+struct CheckoutIdentity {
+    path: PathBuf,
+    remote_full_name: Option<String>,
+    provider: Option<String>,
+    folder_name: String,
+}
+
 pub fn local_activity_on_date(
     path: &str,
     date: NaiveDate,
@@ -345,53 +361,144 @@ pub fn locate_repository_checkout(repository: &Repository) -> Result<Option<Stri
         .map(|path| path.map(|value| value.to_string_lossy().to_string()))
 }
 
+/// Mirrors the macOS startup flow: find missing local checkouts and refresh Git
+/// metadata for every tracked repository that is available on this machine.
+/// The filesystem is scanned once, then reused for all remote repositories.
+pub fn refresh_local_repositories(repositories: &[Repository]) -> Vec<LocalRepositoryState> {
+    refresh_local_repositories_in_roots(repositories, &default_locator_roots(), 7)
+}
+
+fn refresh_local_repositories_in_roots(
+    repositories: &[Repository],
+    roots: &[PathBuf],
+    maximum_depth: u8,
+) -> Vec<LocalRepositoryState> {
+    let mut checkouts = discover_git_repository_paths(roots, maximum_depth);
+    for repository in repositories {
+        if let Some(path) = repository
+            .tracking
+            .local_path
+            .as_deref()
+            .and_then(|path| validate_repo(path).ok())
+        {
+            checkouts.push(path);
+        }
+    }
+    checkouts.sort();
+    checkouts.dedup();
+    let checkout_identities = describe_checkouts(&checkouts);
+
+    repositories
+        .iter()
+        .filter_map(|repository| {
+            let path = repository
+                .tracking
+                .local_path
+                .as_deref()
+                .and_then(|path| validate_repo(path).ok())
+                .or_else(|| locate_repository_in_identities(repository, &checkout_identities));
+            let path = path?;
+            let path_text = path.to_string_lossy().to_string();
+            let status = git_status(&path_text).ok()?;
+            let local_branches = local_branches(&path_text)
+                .ok()
+                .filter(|branches| !branches.is_empty());
+            Some(LocalRepositoryState {
+                repository_id: repository.id.clone(),
+                path: path_text,
+                status,
+                local_branches,
+            })
+        })
+        .collect()
+}
+
 fn locate_repository_in_roots(
     repository: &Repository,
     roots: &[PathBuf],
     maximum_depth: u8,
 ) -> Result<Option<PathBuf>, String> {
+    let checkouts = discover_git_repository_paths(roots, maximum_depth);
+    Ok(locate_repository_in_checkouts(repository, &checkouts))
+}
+
+fn locate_repository_in_checkouts(
+    repository: &Repository,
+    checkouts: &[PathBuf],
+) -> Option<PathBuf> {
+    locate_repository_in_identities(repository, &describe_checkouts(checkouts))
+}
+
+fn describe_checkouts(checkouts: &[PathBuf]) -> Vec<CheckoutIdentity> {
+    checkouts
+        .iter()
+        .map(|path| {
+            let remote = git_value(path, &["config", "--get", "remote.origin.url"]);
+            CheckoutIdentity {
+                path: path.clone(),
+                remote_full_name: remote.as_deref().and_then(remote_full_name),
+                provider: remote.as_deref().map(provider_from_url).map(str::to_string),
+                folder_name: path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_lowercase(),
+            }
+        })
+        .collect()
+}
+
+fn locate_repository_in_identities(
+    repository: &Repository,
+    checkouts: &[CheckoutIdentity],
+) -> Option<PathBuf> {
     let target_name = repository.name.trim().to_lowercase();
     let target_full_name = repository.full_name.trim().to_lowercase();
     let target_provider = repository.provider.trim().to_lowercase();
     let mut name_candidates = Vec::new();
 
-    for checkout in discover_git_repository_paths(roots, maximum_depth) {
-        if let Some(remote) = git_value(&checkout, &["config", "--get", "remote.origin.url"]) {
-            let matches_remote = remote_full_name(&remote)
-                .is_some_and(|full_name| full_name.eq_ignore_ascii_case(&target_full_name));
-            let remote_provider = provider_from_url(&remote);
+    for checkout in checkouts {
+        if let Some(remote_full_name) = checkout.remote_full_name.as_deref() {
+            let matches_remote = remote_full_name.eq_ignore_ascii_case(&target_full_name);
+            let remote_provider = checkout.provider.as_deref().unwrap_or_default();
             let matches_provider = target_provider.is_empty()
                 || matches!(target_provider.as_str(), "local" | "other")
                 || remote_provider.eq_ignore_ascii_case(&target_provider);
             if matches_remote && matches_provider {
-                return Ok(Some(checkout));
+                return Some(checkout.path.clone());
             }
         }
 
-        if !target_name.is_empty()
-            && checkout
-                .file_name()
-                .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(&target_name))
-        {
-            name_candidates.push(checkout);
+        if !target_name.is_empty() && checkout.folder_name.eq_ignore_ascii_case(&target_name) {
+            name_candidates.push(checkout.path.clone());
         }
     }
 
     if name_candidates.len() == 1 {
-        return Ok(name_candidates.pop());
+        return name_candidates.pop();
     }
-    Ok(None)
+    None
 }
 
 fn default_locator_roots() -> Vec<PathBuf> {
     let Some(home) = std::env::var_os("USERPROFILE").map(PathBuf::from) else {
         return Vec::new();
     };
-    ["Developer", "Projects", "Code", "GitHub"]
-        .into_iter()
-        .map(|name| home.join(name))
-        .filter(|path| path.is_dir())
-        .collect()
+    [
+        home.join("Developer"),
+        home.join("Projects"),
+        home.join("Code"),
+        home.join("GitHub"),
+        home.join("source"),
+        home.join("repos"),
+        home.join("Documents").join("Codex"),
+        home.join("Documents").join("GitHub"),
+        home.join("Documents").join("Projects"),
+        home.join("Desktop"),
+    ]
+    .into_iter()
+    .filter(|path| path.is_dir())
+    .collect()
 }
 
 fn discover_git_repository_paths(roots: &[PathBuf], maximum_depth: u8) -> Vec<PathBuf> {
@@ -828,7 +935,8 @@ mod tests {
     use super::{
         commit_all, conflict_state, continue_conflict_operation, has_commit_on_date,
         local_activity_on_date, local_branches, merge_branch, recent_commits_for_branch,
-        resolve_conflict, revert_commit, run_action, switch_branch,
+        refresh_local_repositories_in_roots, repository_from_path, resolve_conflict, revert_commit,
+        run_action, switch_branch,
     };
     use chrono::Local;
     use std::{
@@ -1016,5 +1124,36 @@ mod tests {
             .expect("local activity should be readable");
         assert!(activity.has_code_changes);
         assert_eq!(activity.status.changed_file_count, 1);
+    }
+
+    #[test]
+    fn startup_refresh_discovers_checkout_and_loads_git_workspace() {
+        let temporary = TemporaryRepository::create();
+        let repository = temporary.repository();
+        run_git(
+            &repository,
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/example/repofocus-locator-test.git",
+            ],
+        );
+        let repository_text = repository.to_string_lossy().to_string();
+        let mut tracked =
+            repository_from_path(&repository_text).expect("tracked repository should be created");
+        tracked.tracking.local_path = None;
+        tracked.tracking.git_status = None;
+        tracked.tracking.local_branches = None;
+
+        let states = refresh_local_repositories_in_roots(&[tracked], &[temporary.0.clone()], 2);
+
+        assert_eq!(states.len(), 1);
+        assert_eq!(PathBuf::from(&states[0].path), repository);
+        assert_eq!(states[0].status.branch.as_deref(), Some("main"));
+        assert!(states[0]
+            .local_branches
+            .as_ref()
+            .is_some_and(|branches| branches.contains(&"main".to_string())));
     }
 }

@@ -107,6 +107,32 @@ async fn auto_detect_local_repository(
 }
 
 #[tauri::command]
+async fn bootstrap_local_repositories(store: State<'_, AppStore>) -> Result<AppData, String> {
+    let repositories = store.snapshot()?.repositories;
+    let states = tauri::async_runtime::spawn_blocking(move || {
+        git::refresh_local_repositories(&repositories)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+
+    let mut data = store.snapshot()?;
+    for state in states {
+        let Some(repository) = data
+            .repositories
+            .iter_mut()
+            .find(|repository| repository.id == state.repository_id)
+        else {
+            continue;
+        };
+        repository.tracking.local_path = Some(state.path);
+        repository.tracking.git_status = Some(state.status);
+        repository.tracking.local_branches = state.local_branches;
+    }
+    store.replace(data.clone())?;
+    Ok(data)
+}
+
+#[tauri::command]
 async fn refresh_git(path: String) -> Result<GitStatus, String> {
     tauri::async_runtime::spawn_blocking(move || git::git_status(&path))
         .await
@@ -386,6 +412,7 @@ pub fn run() {
             import_repository,
             scan_repositories,
             auto_detect_local_repository,
+            bootstrap_local_repositories,
             refresh_git,
             list_commits,
             list_commits_for_branch,

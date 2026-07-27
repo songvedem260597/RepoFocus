@@ -2441,6 +2441,10 @@ button:disabled {
   background: color-mix(in srgb, var(--panel) 76%, var(--canvas));
 }
 
+.workspace-panel-disconnected {
+  border-style: dashed;
+}
+
 .workspace-heading {
   display: flex;
   align-items: center;
@@ -2493,6 +2497,59 @@ button:disabled {
 .workspace-actions button:hover {
   border-color: var(--strong-border);
   background: var(--elevated);
+}
+
+.workspace-actions button:disabled,
+.workspace-codex-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.workspace-actions button:disabled:hover,
+.workspace-codex-button:disabled:hover {
+  border-color: var(--border);
+  background: var(--subtle);
+}
+
+.workspace-connect {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--subtle));
+}
+
+.workspace-connect p {
+  margin: 0;
+  color: var(--secondary);
+  font-size: var(--font-size-min);
+  line-height: 1.4;
+}
+
+.workspace-connect > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.workspace-connect button {
+  display: inline-flex;
+  min-height: 31px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 9px;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--elevated);
+  font-size: var(--font-size-min);
+  font-weight: 650;
+}
+
+.workspace-connect button:hover {
+  border-color: var(--strong-border);
 }
 
 .workspace-codex-button {

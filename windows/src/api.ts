@@ -27,6 +27,8 @@ export const api = {
     invoke<ScanResult>("scan_repositories", { root, maxDepth }),
   autoDetectLocalRepository: (repositoryId: string) =>
     invoke<AppData>("auto_detect_local_repository", { repositoryId }),
+  bootstrapLocalRepositories: () =>
+    invoke<AppData>("bootstrap_local_repositories"),
   refreshGit: (path: string) => invoke<GitStatus>("refresh_git", { path }),
   listCommits: (path: string, limit = 100) =>
     invoke<CommitInfo[]>("list_commits", { path, limit }),

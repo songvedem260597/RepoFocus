@@ -517,6 +517,9 @@ function App() {
       const next = await api.load();
       setData(next);
       setSelectedId((current) => current ?? next.repositories[0]?.id ?? null);
+      const localData = await api.bootstrapLocalRepositories();
+      setData(localData);
+      setSelectedId((current) => current ?? localData.repositories[0]?.id ?? null);
     } catch (error) {
       notify(asError(error), "error");
     } finally {
@@ -1576,63 +1579,104 @@ function App() {
                 )}
               </div>
 
-              {selected.tracking.localPath && selected.tracking.gitStatus && (
-                <section className="workspace-panel">
-                  <div className="workspace-heading">
-                    <div>
-                      <strong>Git workspace</strong>
-                      <span><GitBranch size={13} /> {selected.tracking.gitStatus?.branch ?? "Detached HEAD"}</span>
-                    </div>
+              <section className={`workspace-panel ${selected.tracking.localPath ? "" : "workspace-panel-disconnected"}`}>
+                <div className="workspace-heading">
+                  <div>
+                    <strong>Git workspace</strong>
+                    <span>
+                      <GitBranch size={13} />
+                      {selected.tracking.localPath
+                        ? selected.tracking.gitStatus?.branch ?? "Đang đọc branch…"
+                        : "Chưa liên kết thư mục local"}
+                    </span>
+                  </div>
+                  {selected.tracking.localPath ? (
                     <button className="icon-button" title="Kiểm tra Git" onClick={refreshGit} disabled={working === "git"}>
                       {working === "git" ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}
                     </button>
-                  </div>
-                  <button className="workspace-codex-button" onClick={openCodexTask} disabled={workspaceBusy}>
-                    <Zap size={14} />
-                    <span>Mở tác vụ mới trong Codex</span>
-                    <ExternalLink size={12} />
-                  </button>
-                  <div className="workspace-actions">
-                    <button onClick={() => openWorkspaceDialog("switch")} disabled={workspaceBusy}>
-                      <ArrowLeftRight size={15} /> Đổi branch
-                    </button>
-                    <button onClick={() => openWorkspaceDialog("commit")} disabled={workspaceBusy}>
-                      <CheckCircle2 size={15} /> Commit
-                    </button>
-                    <button onClick={() => executeGitAction("pull")} disabled={workspaceBusy}>
-                      <Download size={15} /> Pull
-                    </button>
-                    <button onClick={() => executeGitAction("push")} disabled={workspaceBusy}>
-                      <Upload size={15} /> Push
-                    </button>
-                    <button onClick={() => openWorkspaceDialog("merge")} disabled={workspaceBusy}>
-                      <GitMerge size={15} /> Merge branch
-                    </button>
-                    <button onClick={() => openWorkspaceDialog("history")} disabled={workspaceBusy}>
-                      <History size={15} /> Lịch sử commit
-                    </button>
-                  </div>
-                  {workspaceHasConflict && (
+                  ) : (
                     <button
-                      className="workspace-conflict-button"
-                      onClick={() => {
-                        setConfirmConflictAbort(false);
-                        setShowConflictResolver(true);
-                      }}
-                      disabled={workspaceBusy}
+                      className="icon-button"
+                      title="Tự tìm repository trên máy"
+                      onClick={autoDetectLocalRepository}
+                      disabled={localDetection === "searching"}
                     >
-                      <AlertTriangle size={15} />
-                      <span>{conflictState!.files.length
-                        ? `Xử lý ${conflictState!.files.length} file conflict`
-                        : "Hoàn tất thao tác Git đang chờ"}</span>
-                      <ArrowRight size={13} />
+                      {localDetection === "searching" ? <LoaderCircle className="spin" size={16} /> : <Search size={16} />}
                     </button>
                   )}
-                  <p className="workspace-safety-copy">
-                    Các nút chạy Git thật trong đúng thư mục repo. Pull chỉ fast-forward; hoàn tác luôn tạo commit mới, không dùng reset --hard.
-                  </p>
-                </section>
-              )}
+                </div>
+
+                {!selected.tracking.localPath && (
+                  <div className="workspace-connect">
+                    <p>Liên kết checkout trên máy để mở Codex và thao tác Git ngay tại đây.</p>
+                    <div>
+                      <button onClick={autoDetectLocalRepository} disabled={localDetection === "searching"}>
+                        {localDetection === "searching" ? <LoaderCircle className="spin" size={15} /> : <Search size={15} />}
+                        {localDetection === "searching" ? "Đang tìm…" : "Tự tìm trên máy"}
+                      </button>
+                      <button onClick={chooseAndImport}>
+                        <Folder size={15} /> Chọn thư mục
+                      </button>
+                      {selected.url && (
+                        <button onClick={openCloneDialog}>
+                          <Download size={15} /> Clone repo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  className="workspace-codex-button"
+                  onClick={openCodexTask}
+                  disabled={!selected.tracking.localPath || workspaceBusy}
+                >
+                  <Zap size={14} />
+                  <span>Mở tác vụ mới trong Codex</span>
+                  <ExternalLink size={12} />
+                </button>
+                <div className="workspace-actions">
+                  <button onClick={() => openWorkspaceDialog("switch")} disabled={!selected.tracking.localPath || workspaceBusy}>
+                    <ArrowLeftRight size={15} /> Đổi branch
+                  </button>
+                  <button onClick={() => openWorkspaceDialog("commit")} disabled={!selected.tracking.localPath || workspaceBusy}>
+                    <CheckCircle2 size={15} /> Commit
+                  </button>
+                  <button onClick={() => executeGitAction("pull")} disabled={!selected.tracking.localPath || workspaceBusy}>
+                    <Download size={15} /> Pull
+                  </button>
+                  <button onClick={() => executeGitAction("push")} disabled={!selected.tracking.localPath || workspaceBusy}>
+                    <Upload size={15} /> Push
+                  </button>
+                  <button onClick={() => openWorkspaceDialog("merge")} disabled={!selected.tracking.localPath || workspaceBusy}>
+                    <GitMerge size={15} /> Merge branch
+                  </button>
+                  <button onClick={() => openWorkspaceDialog("history")} disabled={!selected.tracking.localPath || workspaceBusy}>
+                    <History size={15} /> Lịch sử commit
+                  </button>
+                </div>
+                {workspaceHasConflict && (
+                  <button
+                    className="workspace-conflict-button"
+                    onClick={() => {
+                      setConfirmConflictAbort(false);
+                      setShowConflictResolver(true);
+                    }}
+                    disabled={workspaceBusy}
+                  >
+                    <AlertTriangle size={15} />
+                    <span>{conflictState!.files.length
+                      ? `Xử lý ${conflictState!.files.length} file conflict`
+                      : "Hoàn tất thao tác Git đang chờ"}</span>
+                    <ArrowRight size={13} />
+                  </button>
+                )}
+                <p className="workspace-safety-copy">
+                  {selected.tracking.localPath
+                    ? "Các nút chạy Git thật trong đúng thư mục repo. Pull chỉ fast-forward; hoàn tác luôn tạo commit mới, không dùng reset --hard."
+                    : "Các thao tác Git đang khóa cho tới khi repository được liên kết với checkout trên máy."}
+                </p>
+              </section>
 
               <InspectorSection title="Theo dõi">
                 {selected.tracking.isFocused && (

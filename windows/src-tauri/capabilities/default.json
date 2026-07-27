@@ -7,7 +7,15 @@
     "core:default",
     "dialog:allow-open",
     "dialog:allow-message",
-    "opener:allow-open-url",
+    "opener:allow-default-urls",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "codex://threads/new*"
+        }
+      ]
+    },
     "opener:allow-open-path"
   ]
 }

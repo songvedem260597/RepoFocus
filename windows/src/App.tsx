@@ -437,6 +437,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneParent, setCloneParent] = useState("");
+  const [cloneAutoDetected, setCloneAutoDetected] = useState(false);
   const [commits, setCommits] = useState<CommitInfo[]>([]);
   const [workspaceDialog, setWorkspaceDialog] = useState<WorkspaceDialog | null>(null);
   const [workspaceBranch, setWorkspaceBranch] = useState("");
@@ -1296,6 +1297,18 @@ function App() {
     if (path) setCloneParent(path);
   };
 
+  const openCloneDialog = () => {
+    const detectedUrl = selected && !selected.tracking.localPath ? selected.url : null;
+    if (detectedUrl) {
+      setCloneUrl(detectedUrl);
+      setCloneAutoDetected(true);
+    } else {
+      setCloneUrl("");
+      setCloneAutoDetected(false);
+    }
+    setShowClone(true);
+  };
+
   const clone = async () => {
     if (!cloneUrl.trim() || !cloneParent) {
       notify("Hãy nhập URL và chọn thư mục lưu.", "error");
@@ -1314,6 +1327,7 @@ function App() {
       if (imported) setSelectedId(imported.id);
       setShowClone(false);
       setCloneUrl("");
+      setCloneAutoDetected(false);
       notify(`Clone repository thành công.${autoFocusSuffix(autoFocus.focusedRepositoryIds.length)}`);
     } catch (error) {
       notify(asError(error), "error");
@@ -1431,7 +1445,7 @@ function App() {
           </div>
           {activeView !== "settings" && activeView !== "activity" && (
           <div className="header-actions">
-            <button className="icon-button" title="Clone repository" onClick={() => setShowClone(true)}>
+            <button className="icon-button" title="Clone repository" onClick={openCloneDialog}>
               <Download size={17} />
             </button>
             <label className="search-box">
@@ -1931,19 +1945,33 @@ function App() {
 
       {showClone && (
         <Modal title="Clone repository" onClose={() => setShowClone(false)}>
-          <p className="modal-copy">Clone từ GitHub, GitLab hoặc bất kỳ Git remote HTTPS/SSH nào.</p>
-          <label className="stacked-field">
-            <span>Git URL</span>
-            <input
-              autoFocus
-              value={cloneUrl}
-              onChange={(event) => setCloneUrl(event.target.value)}
-              placeholder="https://github.com/owner/repository.git"
-            />
-          </label>
+          {cloneAutoDetected ? (
+            <>
+              <p className="modal-copy">
+                Clone <strong>{selected?.fullName ?? selected?.name}</strong> về máy. Chỉ cần chọn thư mục lưu.
+              </p>
+              <label className="stacked-field">
+                <span>Git URL</span>
+                <input value={cloneUrl} readOnly />
+              </label>
+            </>
+          ) : (
+            <>
+              <p className="modal-copy">Clone từ GitHub, GitLab hoặc bất kỳ Git remote HTTPS/SSH nào.</p>
+              <label className="stacked-field">
+                <span>Git URL</span>
+                <input
+                  autoFocus
+                  value={cloneUrl}
+                  onChange={(event) => setCloneUrl(event.target.value)}
+                  placeholder="https://github.com/owner/repository.git"
+                />
+              </label>
+            </>
+          )}
           <label className="stacked-field">
             <span>Thư mục lưu</span>
-            <button className="path-picker" onClick={chooseCloneParent}>
+            <button className="path-picker" autoFocus={cloneAutoDetected} onClick={chooseCloneParent}>
               <Folder size={16} />
               <span>{cloneParent || "Chọn thư mục cha..."}</span>
             </button>

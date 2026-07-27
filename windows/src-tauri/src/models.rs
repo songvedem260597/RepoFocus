@@ -162,6 +162,11 @@ impl Default for Tracking {
 impl Tracking {
     pub fn normalize(&mut self) {
         self.progress = self.progress.min(100);
+        self.local_path = self
+            .local_path
+            .take()
+            .map(|path| normalize_windows_path(&path))
+            .filter(|path| !path.is_empty());
         self.focus_branch = self
             .focus_branch
             .take()
@@ -206,6 +211,19 @@ impl Tracking {
             }
         }
         self.branch_trackings = branch_trackings;
+    }
+}
+
+/// Bỏ tiền tố UNC (`\\?\`) mà `canonicalize` tạo ra trên Windows,
+/// để đường dẫn hiển thị và lưu ở dạng quen thuộc `C:\...`.
+pub fn normalize_windows_path(path: &str) -> String {
+    let path = path.trim();
+    if let Some(stripped) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{stripped}")
+    } else if let Some(stripped) = path.strip_prefix(r"\\?\") {
+        stripped.to_string()
+    } else {
+        path.to_string()
     }
 }
 

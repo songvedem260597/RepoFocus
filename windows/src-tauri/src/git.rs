@@ -728,8 +728,23 @@ fn validate_repo(path: &str) -> Result<PathBuf, String> {
         return Err("Thư mục này không phải Git repository.".into());
     }
     let root = PathBuf::from(output_text(&output));
-    root.canonicalize()
-        .map_err(|error| format!("Không thể đọc đường dẫn repository: {error}"))
+    let canonical = root
+        .canonicalize()
+        .map_err(|error| format!("Không thể đọc đường dẫn repository: {error}"))?;
+    Ok(strip_unc_prefix(&canonical))
+}
+
+/// `canonicalize` trên Windows trả về đường dẫn UNC (`\\?\C:\...`).
+/// Bỏ tiền tố này để hiển thị và lưu đường dẫn ở định dạng quen thuộc.
+fn strip_unc_prefix(path: &Path) -> PathBuf {
+    let text = path.to_string_lossy();
+    if let Some(stripped) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{stripped}"))
+    } else if let Some(stripped) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path.to_path_buf()
+    }
 }
 
 fn git_value(path: &Path, args: &[&str]) -> Option<String> {

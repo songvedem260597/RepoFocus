@@ -3,6 +3,7 @@ import type {
   AppData,
   AutoFocusResult,
   CommitInfo,
+  ContributionDay,
   GitActionResult,
   GitConflictChoice,
   GitConflictState,
@@ -57,8 +58,13 @@ export const api = {
   cloneRepository: (url: string, parent: string) =>
     invoke<AppData>("clone_repository", { url, parent }),
   syncGitHub: () => invoke<AppData>("sync_github"),
+  syncGitLab: () => invoke<AppData>("sync_gitlab"),
   githubActivity: (date: string) =>
     invoke<RemoteActivity[]>("github_activity", { date }),
+  gitLabActivity: (date: string) =>
+    invoke<RemoteActivity[]>("gitlab_activity", { date }),
+  contributionCalendar: (days = 84) =>
+    invoke<ContributionDay[]>("contribution_calendar", { days }),
   autoFocusToday: (date: string) =>
     invoke<AutoFocusResult>("auto_focus_today", { date })
 };

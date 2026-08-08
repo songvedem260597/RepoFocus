@@ -718,6 +718,110 @@ button:disabled {
   white-space: nowrap;
 }
 
+.contribution-calendar-panel {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 76%, var(--canvas));
+}
+
+.contribution-calendar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.contribution-calendar-heading > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.contribution-calendar-heading strong {
+  font-size: 12px;
+}
+
+.contribution-calendar-heading span,
+.contribution-legend {
+  color: var(--secondary);
+  font-size: var(--font-size-min);
+}
+
+.contribution-calendar-body {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 3px;
+}
+
+.contribution-weekdays {
+  display: grid;
+  flex: 0 0 21px;
+  grid-template-rows: repeat(7, 13px);
+  gap: 3px;
+  color: var(--tertiary);
+  font-size: 8px;
+  line-height: 13px;
+}
+
+.contribution-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 13px);
+  grid-auto-flow: column;
+  grid-auto-columns: 13px;
+  gap: 3px;
+  min-width: max-content;
+}
+
+.contribution-grid button,
+.contribution-legend i {
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 3px;
+  background: var(--subtle);
+}
+
+.contribution-grid button[data-level="1"],
+.contribution-legend i[data-level="1"] { background: color-mix(in srgb, var(--success) 24%, var(--subtle)); }
+.contribution-grid button[data-level="2"],
+.contribution-legend i[data-level="2"] { background: color-mix(in srgb, var(--success) 46%, var(--subtle)); }
+.contribution-grid button[data-level="3"],
+.contribution-legend i[data-level="3"] { background: color-mix(in srgb, var(--success) 70%, var(--subtle)); }
+.contribution-grid button[data-level="4"],
+.contribution-legend i[data-level="4"] { background: color-mix(in srgb, var(--success) 92%, var(--subtle)); }
+
+.contribution-grid button:hover:not(:disabled) {
+  outline: 1px solid var(--success);
+  outline-offset: 1px;
+}
+
+.contribution-grid button.selected {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+
+.contribution-grid button.future {
+  opacity: 0.28;
+}
+
+.contribution-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.contribution-legend i {
+  display: inline-block;
+}
+
 .date-controls {
   display: flex;
   align-items: center;
@@ -2579,6 +2683,38 @@ button:disabled {
   color: var(--tertiary);
 }
 
+.workspace-operation {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: 9px;
+  padding: 8px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--subtle);
+  color: var(--secondary);
+  font-size: var(--font-size-min);
+  line-height: 1.35;
+}
+
+.workspace-operation-running {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.workspace-operation-success {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 28%, var(--border));
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+
+.workspace-operation-error {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+}
+
 .workspace-safety-copy {
   margin: 11px 0 0;
   color: var(--tertiary);
@@ -3648,6 +3784,44 @@ button:disabled {
   color: var(--secondary);
   font-size: var(--font-size-min);
   line-height: 1.45;
+}
+
+.clone-progress-panel {
+  margin-top: 14px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--subtle);
+}
+
+.clone-progress-panel > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 7px;
+  color: var(--secondary);
+  font-size: var(--font-size-min);
+}
+
+.clone-progress-panel strong {
+  color: var(--text);
+  font-size: var(--font-size-min);
+}
+
+.clone-progress-track {
+  overflow: hidden;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--strong-border) 46%, transparent);
+}
+
+.clone-progress-track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 120ms ease;
 }
 
 .modal-actions {

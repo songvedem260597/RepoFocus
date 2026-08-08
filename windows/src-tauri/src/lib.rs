@@ -1,16 +1,17 @@
 mod git;
 mod github;
+mod gitlab;
 mod models;
 mod storage;
 
 use chrono::{NaiveDate, Utc};
 use models::{
-    AppData, AutoFocusResult, CommitInfo, GitActionResult, GitConflictState, GitStatus,
-    RemoteActivity, Repository, ScanResult, Settings,
+    AppData, AutoFocusResult, CommitInfo, ContributionDay, GitActionResult, GitConflictState,
+    GitStatus, RemoteActivity, Repository, ScanResult, Settings,
 };
 use std::collections::HashMap;
 use storage::AppStore;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State, WebviewWindow};
 
 #[tauri::command]
 fn load_data(store: State<'_, AppStore>) -> Result<AppData, String> {
@@ -235,20 +236,52 @@ async fn abort_git_conflict_operation(path: String) -> Result<GitActionResult, S
 
 #[tauri::command]
 async fn clone_repository(
+    window: WebviewWindow,
     store: State<'_, AppStore>,
     url: String,
     parent: String,
 ) -> Result<AppData, String> {
-    let repository =
-        tauri::async_runtime::spawn_blocking(move || git::clone_repository(&url, &parent))
-            .await
-            .map_err(|error| error.to_string())??;
+    let progress_window = window.clone();
+    let repository = tauri::async_runtime::spawn_blocking(move || {
+        git::clone_repository_with_progress(&url, &parent, |progress| {
+            let _ = progress_window.emit("clone-progress", progress);
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())??;
     store.upsert(merge_with_existing(&store.snapshot()?, repository))
 }
 
 #[tauri::command]
 async fn sync_github(store: State<'_, AppStore>) -> Result<AppData, String> {
     let remote_repositories = tauri::async_runtime::spawn_blocking(github::list_repositories)
+        .await
+        .map_err(|error| error.to_string())??;
+    let mut data = store.snapshot()?;
+
+    for mut remote in remote_repositories {
+        if remote.is_archived {
+            remote.tracking.status = "archived".into();
+        }
+        if let Some(existing) = data.repositories.iter_mut().find(|item| {
+            item.id.eq_ignore_ascii_case(&remote.id)
+                || item.full_name.eq_ignore_ascii_case(&remote.full_name)
+        }) {
+            let tracking = existing.tracking.clone();
+            *existing = remote;
+            existing.tracking = tracking;
+        } else {
+            data.repositories.push(remote);
+        }
+    }
+    data.last_sync_at = Some(Utc::now());
+    store.replace(data.clone())?;
+    Ok(data)
+}
+
+#[tauri::command]
+async fn sync_gitlab(store: State<'_, AppStore>) -> Result<AppData, String> {
+    let remote_repositories = tauri::async_runtime::spawn_blocking(gitlab::list_repositories)
         .await
         .map_err(|error| error.to_string())??;
     let mut data = store.snapshot()?;
@@ -281,6 +314,47 @@ async fn github_activity(date: String) -> Result<Vec<RemoteActivity>, String> {
 }
 
 #[tauri::command]
+async fn gitlab_activity(date: String) -> Result<Vec<RemoteActivity>, String> {
+    tauri::async_runtime::spawn_blocking(move || gitlab::activity_for_date(&date))
+        .await
+        .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn contribution_calendar(days: u32) -> Result<Vec<ContributionDay>, String> {
+    let github_task =
+        tauri::async_runtime::spawn_blocking(move || github::contribution_calendar(days));
+    let gitlab_task =
+        tauri::async_runtime::spawn_blocking(move || gitlab::contribution_calendar(days));
+    let mut counts = HashMap::<String, u32>::new();
+    let mut succeeded = false;
+    if let Ok(Ok(items)) = github_task.await {
+        succeeded = true;
+        for item in items {
+            *counts.entry(item.date).or_default() += item.count;
+        }
+    }
+    if let Ok(Ok(items)) = gitlab_task.await {
+        succeeded = true;
+        for item in items {
+            *counts.entry(item.date).or_default() += item.count;
+        }
+    }
+    if !succeeded {
+        return Err(
+            "Không thể tải lịch đóng góp từ GitHub hoặc GitLab. Hãy kiểm tra phiên đăng nhập CLI."
+                .into(),
+        );
+    }
+    let mut items = counts
+        .into_iter()
+        .map(|(date, count)| ContributionDay { date, count })
+        .collect::<Vec<_>>();
+    items.sort_by(|left, right| left.date.cmp(&right.date));
+    Ok(items)
+}
+
+#[tauri::command]
 async fn auto_focus_today(
     store: State<'_, AppStore>,
     date: String,
@@ -303,6 +377,10 @@ async fn auto_focus_today(
         .repositories
         .iter()
         .any(|repository| repository.provider.eq_ignore_ascii_case("github"));
+    let should_check_gitlab = snapshot
+        .repositories
+        .iter()
+        .any(|repository| repository.provider.eq_ignore_ascii_case("gitlab"));
 
     let local_task = tauri::async_runtime::spawn_blocking(move || {
         local_repositories
@@ -314,19 +392,27 @@ async fn auto_focus_today(
             })
             .collect::<Vec<_>>()
     });
-    let remote_task = should_check_github.then(|| {
+    let github_task = should_check_github.then(|| {
         let remote_date = date.clone();
         tauri::async_runtime::spawn_blocking(move || github::activity_for_date(&remote_date))
     });
+    let gitlab_task = should_check_gitlab.then(|| {
+        let remote_date = date.clone();
+        tauri::async_runtime::spawn_blocking(move || gitlab::activity_for_date(&remote_date))
+    });
 
     let local_activity = local_task.await.map_err(|error| error.to_string())?;
-    let mut remote_activity = match remote_task {
-        Some(task) => match task.await {
-            Ok(Ok(activity)) => activity,
-            _ => Vec::new(),
-        },
-        None => Vec::new(),
-    };
+    let mut remote_activity = Vec::new();
+    if let Some(task) = github_task {
+        if let Ok(Ok(activity)) = task.await {
+            remote_activity.extend(activity);
+        }
+    }
+    if let Some(task) = gitlab_task {
+        if let Ok(Ok(activity)) = task.await {
+            remote_activity.extend(activity);
+        }
+    }
 
     let mut git_statuses = HashMap::new();
     let mut candidates = HashMap::new();
@@ -428,7 +514,10 @@ pub fn run() {
             abort_git_conflict_operation,
             clone_repository,
             sync_github,
+            sync_gitlab,
             github_activity,
+            gitlab_activity,
+            contribution_calendar,
             auto_focus_today
         ])
         .run(tauri::generate_context!())

@@ -2,12 +2,14 @@ use crate::models::{
     CommitInfo, GitActionResult, GitConflictState, GitStatus, Repository, ScanResult, Tracking,
 };
 use chrono::{NaiveDate, TimeZone, Utc};
+use serde::Serialize;
 use std::{
     collections::{HashSet, VecDeque},
     ffi::OsStr,
     fs,
+    io::{BufRead, BufReader},
     path::{Path, PathBuf},
-    process::{Command, Output},
+    process::{Command, Output, Stdio},
 };
 
 fn command_output<I, S>(args: I) -> Result<Output, String>
@@ -542,7 +544,22 @@ fn discover_git_repository_paths(roots: &[PathBuf], maximum_depth: u8) -> Vec<Pa
     repositories
 }
 
-pub fn clone_repository(url: &str, parent: &str) -> Result<Repository, String> {
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloneProgress {
+    pub phase: String,
+    pub percent_completed: u8,
+    pub phase_percent_completed: u8,
+}
+
+pub fn clone_repository_with_progress<F>(
+    url: &str,
+    parent: &str,
+    mut progress_handler: F,
+) -> Result<Repository, String>
+where
+    F: FnMut(CloneProgress),
+{
     let url = url.trim();
     if url.is_empty() {
         return Err("Hãy nhập URL repository.".into());
@@ -566,16 +583,123 @@ pub fn clone_repository(url: &str, parent: &str) -> Result<Repository, String> {
         return Err(format!("Thư mục đích đã tồn tại: {}", target.display()));
     }
 
-    let output = command_output([
-        OsStr::new("clone"),
-        OsStr::new("--progress"),
-        OsStr::new(url),
-        target.as_os_str(),
-    ])?;
-    if !output.status.success() {
-        return Err(output_error(&output));
+    progress_handler(CloneProgress {
+        phase: "preparing".into(),
+        percent_completed: 0,
+        phase_percent_completed: 0,
+    });
+
+    let mut command = Command::new("git");
+    command
+        .args([
+            OsStr::new("clone"),
+            OsStr::new("--progress"),
+            OsStr::new("--"),
+        ])
+        .arg(url)
+        .arg(&target)
+        .env("LC_ALL", "C")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .creation_flags_no_window();
+    let mut child = command
+        .spawn()
+        .map_err(|error| format!("Không chạy được Git. Hãy kiểm tra Git for Windows: {error}"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Không thể đọc tiến trình clone từ Git.".to_string())?;
+    let mut reader = BufReader::new(stderr);
+    let mut chunk = Vec::new();
+    let mut error_output = String::new();
+    let mut last_percent = 0u8;
+
+    loop {
+        chunk.clear();
+        let read = reader
+            .read_until(b'\r', &mut chunk)
+            .map_err(|error| format!("Không thể đọc tiến trình clone: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        let text = String::from_utf8_lossy(&chunk);
+        error_output.push_str(&text);
+        if let Some(progress) = clone_progress_from_output(&text) {
+            if progress.percent_completed >= last_percent {
+                last_percent = progress.percent_completed;
+                progress_handler(progress);
+            }
+        }
     }
+
+    let status = child
+        .wait()
+        .map_err(|error| format!("Không thể chờ Git clone hoàn tất: {error}"))?;
+    if !status.success() {
+        let _ = fs::remove_dir_all(&target);
+        let message = error_output
+            .replace(url, "remote repository")
+            .trim()
+            .to_string();
+        return Err(if message.is_empty() {
+            "Không thể clone repository.".into()
+        } else {
+            message
+        });
+    }
+
+    progress_handler(CloneProgress {
+        phase: "completed".into(),
+        percent_completed: 100,
+        phase_percent_completed: 100,
+    });
     repository_from_path(&target.to_string_lossy())
+}
+
+fn clone_progress_from_output(output: &str) -> Option<CloneProgress> {
+    let phases = [
+        ("Receiving objects:", "receivingObjects", 2u8, 78u8),
+        ("Resolving deltas:", "resolvingDeltas", 80u8, 18u8),
+        ("Updating files:", "checkingOutFiles", 98u8, 1u8),
+        ("Filtering content:", "checkingOutFiles", 98u8, 1u8),
+    ];
+    for (label, phase, base, weight) in phases {
+        if let Some(index) = output.rfind(label) {
+            let tail = &output[index + label.len()..];
+            if let Some(percent_index) = tail.find('%') {
+                let digits = tail[..percent_index]
+                    .chars()
+                    .rev()
+                    .take_while(|character| character.is_ascii_digit())
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect::<String>();
+                if let Ok(phase_percent) = digits.parse::<u8>() {
+                    let phase_percent = phase_percent.min(100);
+                    let overall = base.saturating_add(
+                        ((u16::from(weight) * u16::from(phase_percent)) / 100) as u8,
+                    );
+                    return Some(CloneProgress {
+                        phase: phase.into(),
+                        percent_completed: overall.min(99),
+                        phase_percent_completed: phase_percent,
+                    });
+                }
+            }
+        }
+    }
+    if output.contains("Cloning into") {
+        return Some(CloneProgress {
+            phase: "preparing".into(),
+            percent_completed: 2,
+            phase_percent_completed: 0,
+        });
+    }
+    None
 }
 
 pub fn run_action(path: &str, action: &str) -> Result<GitActionResult, String> {

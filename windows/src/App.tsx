@@ -42,12 +42,15 @@ import {
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import { api } from "./api";
 import type {
   AppData,
+  CloneProgress,
   CommitInfo,
+  ContributionDay,
   GitActionResult,
   GitConflictChoice,
   GitConflictState,
@@ -168,6 +171,16 @@ function localISODate(value = new Date()): string {
 
 function autoFocusSuffix(count: number): string {
   return count > 0 ? ` Đã tự thêm ${count} repo có thay đổi hôm nay vào Focus.` : "";
+}
+
+function cloneProgressLabel(progress: CloneProgress): string {
+  switch (progress.phase) {
+    case "receivingObjects": return "Đang nhận dữ liệu";
+    case "resolvingDeltas": return "Đang xử lý thay đổi";
+    case "checkingOutFiles": return "Đang tạo file làm việc";
+    case "completed": return "Hoàn tất";
+    default: return "Đang chuẩn bị";
+  }
 }
 
 function gitHealth(status: GitStatus | null): { label: string; tone: string } {
@@ -438,6 +451,7 @@ function App() {
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneParent, setCloneParent] = useState("");
   const [cloneAutoDetected, setCloneAutoDetected] = useState(false);
+  const [cloneProgress, setCloneProgress] = useState<CloneProgress | null>(null);
   const [commits, setCommits] = useState<CommitInfo[]>([]);
   const [workspaceDialog, setWorkspaceDialog] = useState<WorkspaceDialog | null>(null);
   const [workspaceBranch, setWorkspaceBranch] = useState("");
@@ -452,6 +466,12 @@ function App() {
   const [activityCommits, setActivityCommits] = useState<
     Array<{ repository: Repository; commit: CommitInfo }>
   >([]);
+  const [contributionDays, setContributionDays] = useState<ContributionDay[]>([]);
+  const [contributionLoading, setContributionLoading] = useState(false);
+  const [workspaceOperation, setWorkspaceOperation] = useState<{
+    tone: "running" | "success" | "error";
+    text: string;
+  } | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const saveTimer = useRef<number | null>(null);
   const lastAutoFocusCheckRef = useRef(0);
@@ -530,6 +550,14 @@ function App() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<CloneProgress>("clone-progress", (event) => {
+      setCloneProgress(event.payload);
+    }).then((dispose) => { unlisten = dispose; });
+    return () => unlisten?.();
+  }, []);
 
   useEffect(() => {
     if (loading) return;
@@ -674,10 +702,11 @@ function App() {
             new Date(right.commit.committedAt).getTime() -
             new Date(left.commit.committedAt).getTime()
         );
-      const remote = await api.githubActivity(activityDate).catch((error) => {
-        notify(asError(error), "error");
-        return [] as RemoteActivity[];
-      });
+      const [githubRemote, gitLabRemote] = await Promise.all([
+        api.githubActivity(activityDate).catch(() => [] as RemoteActivity[]),
+        api.gitLabActivity(activityDate).catch(() => [] as RemoteActivity[])
+      ]);
+      const remote = [...githubRemote, ...gitLabRemote];
       const remoteActivity = remote.flatMap((record) => {
         const repository = data.repositories.find(
           (item) => item.fullName.toLowerCase() === record.repositoryFullName.toLowerCase()
@@ -707,16 +736,30 @@ function App() {
     }
   }, [activityDate, data.repositories, notify]);
 
+  const loadContributionCalendar = useCallback(async () => {
+    setContributionLoading(true);
+    try {
+      setContributionDays(await api.contributionCalendar(84));
+    } catch (error) {
+      if (!contributionDays.length) notify(asError(error), "error");
+    } finally {
+      setContributionLoading(false);
+    }
+  }, [contributionDays.length, notify]);
+
   useEffect(() => {
-    if (activeView === "activity") void loadActivity();
-  }, [activeView, activityDate, loadActivity]);
+    if (activeView === "activity") {
+      void loadActivity();
+      if (!contributionDays.length) void loadContributionCalendar();
+    }
+  }, [activeView, activityDate, contributionDays.length, loadActivity, loadContributionCalendar]);
 
   const refreshActivity = useCallback(async () => {
-    await loadActivity();
+    await Promise.all([loadActivity(), loadContributionCalendar()]);
     if (activityDate === localISODate()) {
       await runAutoFocusToday();
     }
-  }, [activityDate, loadActivity, runAutoFocusToday]);
+  }, [activityDate, loadActivity, loadContributionCalendar, runAutoFocusToday]);
 
   useEffect(() => {
     if (!repositories.length) {
@@ -733,6 +776,7 @@ function App() {
     setShowConflictResolver(false);
     setConfirmConflictAbort(false);
     setLocalDetection("idle");
+    setWorkspaceOperation(null);
   }, [selectedId]);
 
   const selected = data.repositories.find((repository) => repository.id === selectedId) ?? null;
@@ -1031,21 +1075,39 @@ function App() {
     }
   };
 
-  const syncGitHub = async () => {
+  const syncProviders = async () => {
     setWorking("sync");
+    const errors: string[] = [];
     try {
-      const next = await api.syncGitHub();
+      let next = data;
+      try {
+        next = await api.syncGitHub();
+      } catch (error) {
+        errors.push(`GitHub: ${asError(error)}`);
+      }
+      try {
+        next = await api.syncGitLab();
+      } catch (error) {
+        errors.push(`GitLab: ${asError(error)}`);
+      }
       setData(next);
       const autoFocus = await runAutoFocusToday(false);
       if (!selectedId && autoFocus.data.repositories[0]) {
         setSelectedId(autoFocus.data.repositories[0].id);
       }
-      notify(
-        `Đã đồng bộ ${next.repositories.filter((repo) => repo.provider === "github").length} repo GitHub.`
-          + autoFocusSuffix(autoFocus.focusedRepositoryIds.length)
-      );
-    } catch (error) {
-      notify(asError(error), "error");
+      const githubCount = next.repositories.filter((repo) => repo.provider === "github").length;
+      const gitLabCount = next.repositories.filter((repo) => repo.provider === "gitlab").length;
+      if (errors.length === 2) {
+        notify(errors.join(" · "), "error", 8000);
+      } else {
+        notify(
+          `Đã đồng bộ ${githubCount} repo GitHub và ${gitLabCount} repo GitLab.`
+            + autoFocusSuffix(autoFocus.focusedRepositoryIds.length)
+            + (errors.length ? ` (${errors[0]})` : ""),
+          errors.length ? "error" : "ok",
+          errors.length ? 8000 : 3800
+        );
+      }
     } finally {
       setWorking(null);
     }
@@ -1159,11 +1221,14 @@ function App() {
   const executeGitAction = async (action: "pull" | "push") => {
     if (!selected?.tracking.localPath) return;
     const path = selected.tracking.localPath;
+    const label = action === "pull" ? "Pull" : "Push";
     setWorking(action);
+    setWorkspaceOperation({ tone: "running", text: `${label} đang chạy…` });
     try {
       const result = await api.gitAction(path, action);
       await applyGitWorkspaceResult(result);
       await refreshConflictState(path).catch(() => setConflictState(null));
+      setWorkspaceOperation({ tone: "success", text: result.message });
       notify(result.message);
     } catch (error) {
       const conflict = await refreshWorkspaceAfterFailure(path);
@@ -1171,7 +1236,9 @@ function App() {
         setConfirmConflictAbort(false);
         setShowConflictResolver(true);
       }
-      notify(asError(error), "error");
+      const message = asError(error);
+      setWorkspaceOperation({ tone: "error", text: message });
+      notify(message, "error");
     } finally {
       setWorking(null);
     }
@@ -1207,7 +1274,9 @@ function App() {
   ) => {
     if (!selected?.tracking.localPath) return;
     const path = selected.tracking.localPath;
+    const actionLabel = action === "switch" ? "Đổi branch" : action === "commit" ? "Commit" : action === "merge" ? "Merge" : "Revert";
     setWorking(`workspace-${action}`);
+    setWorkspaceOperation({ tone: "running", text: `${actionLabel} đang chạy…` });
     try {
       const result = action === "switch"
         ? await api.switchGitBranch(path, value)
@@ -1226,6 +1295,7 @@ function App() {
       } else {
         setWorkspaceDialog(null);
       }
+      setWorkspaceOperation({ tone: "success", text: result.message });
       notify(result.message);
     } catch (error) {
       const conflict = await refreshWorkspaceAfterFailure(path);
@@ -1234,7 +1304,9 @@ function App() {
         setConfirmConflictAbort(false);
         setShowConflictResolver(true);
       }
-      notify(asError(error), "error");
+      const message = asError(error);
+      setWorkspaceOperation({ tone: "error", text: message });
+      notify(message, "error");
     } finally {
       setWorking(null);
     }
@@ -1301,6 +1373,7 @@ function App() {
   };
 
   const openCloneDialog = () => {
+    setCloneProgress(null);
     const detectedUrl = selected && !selected.tracking.localPath ? selected.url : null;
     if (detectedUrl) {
       setCloneUrl(detectedUrl);
@@ -1465,7 +1538,7 @@ function App() {
                 </button>
               )}
             </label>
-            <button className="icon-button" title="Đồng bộ GitHub" onClick={syncGitHub} disabled={working === "sync"}>
+            <button className="icon-button" title="Đồng bộ GitHub và GitLab" onClick={syncProviders} disabled={working === "sync"}>
               {working === "sync" ? <LoaderCircle className="spin" size={17} /> : <RefreshCw size={17} />}
             </button>
           </div>
@@ -1488,6 +1561,8 @@ function App() {
             date={activityDate}
             setDate={setActivityDate}
             activity={activityCommits}
+            contributionDays={contributionDays}
+            contributionLoading={contributionLoading}
             loading={working === "activity"}
             onRefresh={refreshActivity}
           />
@@ -1582,7 +1657,7 @@ function App() {
               <section className={`workspace-panel ${selected.tracking.localPath ? "" : "workspace-panel-disconnected"}`}>
                 <div className="workspace-heading">
                   <div>
-                    <strong>Git workspace</strong>
+                    <strong>Không gian làm việc</strong>
                     <span>
                       <GitBranch size={13} />
                       {selected.tracking.localPath
@@ -1670,6 +1745,16 @@ function App() {
                       : "Hoàn tất thao tác Git đang chờ"}</span>
                     <ArrowRight size={13} />
                   </button>
+                )}
+                {workspaceOperation && (
+                  <div className={`workspace-operation workspace-operation-${workspaceOperation.tone}`}>
+                    {workspaceOperation.tone === "running"
+                      ? <LoaderCircle className="spin" size={14} />
+                      : workspaceOperation.tone === "success"
+                        ? <CheckCircle2 size={14} />
+                        : <AlertTriangle size={14} />}
+                    <span>{workspaceOperation.text}</span>
+                  </div>
                 )}
                 <p className="workspace-safety-copy">
                   {selected.tracking.localPath
@@ -1988,7 +2073,7 @@ function App() {
       </aside>
 
       {showClone && (
-        <Modal title="Clone repository" onClose={() => setShowClone(false)}>
+        <Modal title="Clone repository" onClose={() => setShowClone(false)} dismissible={working !== "clone"}>
           {cloneAutoDetected ? (
             <>
               <p className="modal-copy">
@@ -2020,8 +2105,19 @@ function App() {
               <span>{cloneParent || "Chọn thư mục cha..."}</span>
             </button>
           </label>
+          {working === "clone" && cloneProgress && (
+            <div className="clone-progress-panel">
+              <div>
+                <span>{cloneProgressLabel(cloneProgress)}</span>
+                <strong>{cloneProgress.percentCompleted}%</strong>
+              </div>
+              <div className="clone-progress-track">
+                <i style={{ width: `${cloneProgress.percentCompleted}%` }} />
+              </div>
+            </div>
+          )}
           <div className="modal-actions">
-            <button className="secondary-button" onClick={() => setShowClone(false)}>Hủy</button>
+            <button className="secondary-button" onClick={() => setShowClone(false)} disabled={working === "clone"}>Hủy</button>
             <button className="primary-button" onClick={clone} disabled={working === "clone"}>
               {working === "clone" ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />}
               Clone
@@ -2268,23 +2364,32 @@ function FocusDashboard({
   ) => void;
 }) {
   const [expandedPlannerId, setExpandedPlannerId] = useState<string | null>(null);
-  const attention = [...repositories]
-    .filter(needsAttention)
+  const reminderUrgency = (repository: Repository) => {
+    switch (focusReminderKind(repository)) {
+      case "overdue": return 4;
+      case "today": return 3;
+      case "blocked": return 2;
+      case "conflict": return 1;
+      default: return 0;
+    }
+  };
+  const todayReminders = [...repositories]
+    .filter((repository) =>
+      !repository.isArchived &&
+      repository.tracking.status !== "done" &&
+      repository.tracking.status !== "archived" &&
+      repository.tracking.status !== "paused"
+    )
     .sort((left, right) => {
-      const leftDeadline = left.tracking.deadline ?? "9999-12-31";
-      const rightDeadline = right.tracking.deadline ?? "9999-12-31";
-      if (leftDeadline !== rightDeadline) return leftDeadline.localeCompare(rightDeadline);
+      const urgencyDifference = reminderUrgency(right) - reminderUrgency(left);
+      if (urgencyDifference) return urgencyDifference;
       const priority = { high: 0, medium: 1, low: 2 };
       const priorityDifference = priority[left.tracking.priority] - priority[right.tracking.priority];
       if (priorityDifference) return priorityDifference;
       return left.tracking.focusOrder - right.tracking.focusOrder;
     });
-  const overdueTaskTotal = attention.reduce(
-    (total, repository) => total + overdueTaskCount(repository),
-    0
-  );
   const active = repositories.filter((repo) => repo.tracking.status === "active").length;
-  const blocked = repositories.filter((repo) => repo.tracking.status === "blocked").length;
+  const overdue = repositories.filter(isOverdue).length;
   const openPullRequests = repositories.reduce(
     (total, repository) => total + repository.openPullRequestCount,
     0
@@ -2300,17 +2405,17 @@ function FocusDashboard({
 
   return (
     <section className="focus-dashboard">
-      {attention.length > 0 && (
+      {todayReminders.length > 0 && (
         <div className="attention-panel">
           <div className="attention-header">
             <div className="metric-icon amber"><Bell size={19} fill="currentColor" /></div>
             <div>
-              <strong>Task quá hạn chưa hoàn thành</strong>
-              <span>Chỉ hiển thị task đã quá hạn nhưng chưa hoàn thành.</span>
+              <strong>Hôm nay cần xử lý</strong>
+              <span>Ưu tiên theo hạn chót, trạng thái và conflict của branch.</span>
             </div>
-            <em>{overdueTaskTotal} task</em>
+            <em>{todayReminders.length} dự án</em>
           </div>
-          {attention.slice(0, 4).map((repository) => {
+          {todayReminders.slice(0, 4).map((repository) => {
             const ReminderIcon = focusReminderIcon(repository);
             const branch = repositoryBranch(repository);
             const canOpenPlanner = focusReminderKind(repository) === "next" && !repository.tracking.nextAction.trim();
@@ -2342,15 +2447,15 @@ function FocusDashboard({
               </div>
             );
           })}
-          {attention.length > 4 && (
-            <p className="attention-more">VÃ  {attention.length - 4} repository khÃ¡c trong danh sÃ¡ch táº­p trung</p>
+          {todayReminders.length > 4 && (
+            <p className="attention-more">Và {todayReminders.length - 4} repository khác trong danh sách tập trung</p>
           )}
         </div>
       )}
 
       <div className="focus-stats">
         <MetricCard icon={<Zap size={18} fill="currentColor" />} tone="blue" value={active} label="Đang làm" />
-        <MetricCard icon={<AlertTriangle size={18} fill="currentColor" />} tone="red" value={blocked} label="Bị chặn" />
+        <MetricCard icon={<AlertTriangle size={18} fill="currentColor" />} tone="red" value={overdue} label="Quá hạn" />
         <MetricCard icon={<GitPullRequest size={18} />} tone="purple" value={openPullRequests} label="Pull request" />
       </div>
 
@@ -2688,16 +2793,79 @@ function RepoDatePicker({
   );
 }
 
+function ContributionCalendar({
+  days,
+  selectedDate,
+  loading,
+  onSelect
+}: {
+  days: ContributionDay[];
+  selectedDate: string;
+  loading: boolean;
+  onSelect: (date: string) => void;
+}) {
+  const counts = useMemo(() => new Map(days.map((item) => [item.date, item.count])), [days]);
+  const cells = useMemo(() => {
+    const today = new Date(`${localISODate()}T12:00:00`);
+    const start = new Date(today);
+    start.setDate(today.getDate() - (11 * 7 + today.getDay()));
+    return Array.from({ length: 84 }, (_, index) => {
+      const value = new Date(start);
+      value.setDate(start.getDate() + index);
+      const date = localISODate(value);
+      return { date, count: counts.get(date) ?? 0, future: value > today };
+    });
+  }, [counts]);
+  const level = (count: number) => count <= 0 ? 0 : count <= 2 ? 1 : count <= 5 ? 2 : count <= 9 ? 3 : 4;
+  const total = cells.reduce((sum, cell) => sum + cell.count, 0);
+
+  return (
+    <section className="contribution-calendar-panel">
+      <div className="contribution-calendar-heading">
+        <div>
+          <strong>Lịch đóng góp</strong>
+          <span>{loading ? "Đang tải GitHub + GitLab…" : `${total} đóng góp trong 12 tuần gần nhất`}</span>
+        </div>
+        {loading ? <LoaderCircle className="spin" size={16} /> : <CalendarDays size={16} />}
+      </div>
+      <div className="contribution-calendar-body">
+        <div className="contribution-weekdays" aria-hidden="true">
+          <span>CN</span><span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span>
+        </div>
+        <div className="contribution-grid" aria-label="Lịch đóng góp 12 tuần">
+          {cells.map((cell) => (
+            <button
+              key={cell.date}
+              type="button"
+              className={`${cell.date === selectedDate ? "selected " : ""}${cell.future ? "future" : ""}`}
+              data-level={level(cell.count)}
+              disabled={cell.future}
+              title={`${cell.date}: ${cell.count} đóng góp`}
+              aria-label={`${cell.date}, ${cell.count} đóng góp`}
+              onClick={() => onSelect(cell.date)}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="contribution-legend"><span>Ít</span>{[0, 1, 2, 3, 4].map((item) => <i key={item} data-level={item} />)}<span>Nhiều</span></div>
+    </section>
+  );
+}
+
 function ActivityView({
   date,
   setDate,
   activity,
+  contributionDays,
+  contributionLoading,
   loading,
   onRefresh
 }: {
   date: string;
   setDate: (date: string) => void;
   activity: Array<{ repository: Repository; commit: CommitInfo }>;
+  contributionDays: ContributionDay[];
+  contributionLoading: boolean;
   loading: boolean;
   onRefresh: () => void;
 }) {
@@ -2749,13 +2917,20 @@ function ActivityView({
         </div>
       </div>
 
+      <ContributionCalendar
+        days={contributionDays}
+        selectedDate={date}
+        loading={contributionLoading}
+        onSelect={setDate}
+      />
+
       <div className="activity-stats">
         <MetricCard icon={<ArrowUpCircle size={18} />} tone="blue" value={groups.length} label="Lượt cập nhật" />
         <MetricCard icon={<GitCommitHorizontal size={18} />} tone="blue" value={activity.length} label="Commit" />
         <MetricCard icon={<GitBranch size={18} />} tone="blue" value={branches.size} label="Branch" />
         <MetricCard icon={<Box size={18} />} tone="blue" value={groups.length} label="Repository" />
       </div>
-      <p className="activity-hint">Dữ liệu gồm commit local và hoạt động PushEvent mới nhất từ GitHub.</p>
+      <p className="activity-hint">Dữ liệu gồm commit local và hoạt động push từ GitHub + GitLab. Lịch đóng góp gộp dữ liệu từ cả hai tài khoản CLI đang đăng nhập.</p>
 
       {groups.length ? (
         <div className="activity-groups">

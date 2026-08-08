@@ -1,5 +1,5 @@
-use crate::models::{RemoteActivity, Repository, Tracking};
-use chrono::{DateTime, Local, Utc};
+use crate::models::{ContributionDay, RemoteActivity, Repository, Tracking};
+use chrono::{DateTime, Duration, Local, SecondsFormat, Utc};
 use serde::Deserialize;
 use std::process::{Command, Stdio};
 
@@ -37,6 +37,84 @@ struct GhCount {
 }
 
 #[derive(Debug, Deserialize)]
+struct GhGraphQlResponse {
+    data: Option<GhGraphQlData>,
+    #[serde(default)]
+    errors: Vec<GhGraphQlError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhGraphQlData {
+    viewer: GhGraphQlViewer,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhGraphQlViewer {
+    repositories: GhRepositoryConnection,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhRepositoryConnection {
+    nodes: Vec<GhRepository>,
+    page_info: GhPageInfo,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhPageInfo {
+    has_next_page: bool,
+    end_cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhGraphQlError {
+    message: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhContributionResponse {
+    data: Option<GhContributionData>,
+    #[serde(default)]
+    errors: Vec<GhGraphQlError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhContributionData {
+    viewer: GhContributionViewer,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhContributionViewer {
+    contributions_collection: GhContributionsCollection,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhContributionsCollection {
+    contribution_calendar: GhContributionCalendar,
+}
+
+#[derive(Debug, Deserialize)]
+struct GhContributionCalendar {
+    weeks: Vec<GhContributionWeek>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhContributionWeek {
+    contribution_days: Vec<GhContributionCalendarDay>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GhContributionCalendarDay {
+    date: String,
+    contribution_count: u32,
+}
+
+#[derive(Debug, Deserialize)]
 struct GhEvent {
     #[serde(rename = "type")]
     event_type: String,
@@ -70,38 +148,92 @@ struct GhEventAuthor {
     name: Option<String>,
 }
 
+const REPOSITORY_QUERY: &str = r#"
+query RepoFocusRepositories($cursor: String) {
+  viewer {
+    repositories(
+      first: 50
+      after: $cursor
+      affiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER]
+      orderBy: { field: PUSHED_AT, direction: DESC }
+    ) {
+      nodes {
+        name
+        nameWithOwner
+        url
+        description
+        isPrivate
+        isArchived
+        pushedAt
+        updatedAt
+        primaryLanguage { name }
+        defaultBranchRef { name }
+        issues(states: OPEN) { totalCount }
+        pullRequests(states: OPEN) { totalCount }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}
+"#;
+
 pub fn list_repositories() -> Result<Vec<Repository>, String> {
-    let output = gh_command()
-        .args([
-            "repo",
-            "list",
-            "--limit",
-            "1000",
-            "--json",
-            "name,nameWithOwner,url,description,isPrivate,isArchived,primaryLanguage,defaultBranchRef,issues,pullRequests,pushedAt,updatedAt",
-        ])
-        .output()
-        .map_err(|error| {
+    let mut repositories = Vec::new();
+    let mut cursor: Option<String> = None;
+
+    loop {
+        let mut command = gh_command();
+        command
+            .arg("api")
+            .arg("graphql")
+            .arg("-f")
+            .arg(format!("query={REPOSITORY_QUERY}"));
+        if let Some(value) = cursor.as_deref() {
+            command.arg("-F").arg(format!("cursor={value}"));
+        }
+        let output = command.output().map_err(|error| {
             format!(
                 "Không chạy được GitHub CLI. Hãy cài `gh` và đăng nhập bằng `gh auth login`: {error}"
             )
         })?;
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let hint = if error.to_lowercase().contains("auth")
+                || error.to_lowercase().contains("token")
+                || error.to_lowercase().contains("login")
+            {
+                " Phiên GitHub đã hết hạn; hãy chạy `gh auth login -h github.com` trong Terminal."
+            } else {
+                ""
+            };
+            return Err(format!("{error}{hint}"));
+        }
 
-    if !output.status.success() {
-        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let hint = if error.to_lowercase().contains("auth")
-            || error.to_lowercase().contains("token")
-            || error.to_lowercase().contains("login")
-        {
-            " Phiên GitHub đã hết hạn; hãy chạy `gh auth login -h github.com` trong Terminal."
+        let response: GhGraphQlResponse = serde_json::from_slice(&output.stdout)
+            .map_err(|error| format!("GitHub GraphQL trả về dữ liệu không hợp lệ: {error}"))?;
+        if !response.errors.is_empty() {
+            return Err(response
+                .errors
+                .into_iter()
+                .map(|error| error.message)
+                .collect::<Vec<_>>()
+                .join(" · "));
+        }
+        let connection = response
+            .data
+            .ok_or_else(|| "GitHub GraphQL không trả về dữ liệu repository.".to_string())?
+            .viewer
+            .repositories;
+        repositories.extend(connection.nodes);
+        if connection.page_info.has_next_page {
+            cursor = connection.page_info.end_cursor;
+            if cursor.is_none() {
+                return Err("GitHub báo còn trang dữ liệu nhưng không trả về cursor.".into());
+            }
         } else {
-            ""
-        };
-        return Err(format!("{error}{hint}"));
+            break;
+        }
     }
-
-    let repositories: Vec<GhRepository> = serde_json::from_slice(&output.stdout)
-        .map_err(|error| format!("GitHub CLI trả về dữ liệu không hợp lệ: {error}"))?;
 
     Ok(repositories
         .into_iter()
@@ -121,6 +253,76 @@ pub fn list_repositories() -> Result<Vec<Repository>, String> {
             pushed_at: repository.pushed_at,
             updated_at: repository.updated_at,
             tracking: Tracking::default(),
+        })
+        .collect())
+}
+
+const CONTRIBUTION_QUERY: &str = r#"
+query RepoFocusContributionCalendar($from: DateTime!, $to: DateTime!) {
+  viewer {
+    contributionsCollection(from: $from, to: $to) {
+      contributionCalendar {
+        weeks {
+          contributionDays { date contributionCount }
+        }
+      }
+    }
+  }
+}
+"#;
+
+pub fn contribution_calendar(days: u32) -> Result<Vec<ContributionDay>, String> {
+    let days = days.clamp(7, 366);
+    let to = Utc::now();
+    let from = to - Duration::days(i64::from(days.saturating_sub(1)));
+    let output = gh_command()
+        .arg("api")
+        .arg("graphql")
+        .arg("-f")
+        .arg(format!("query={CONTRIBUTION_QUERY}"))
+        .arg("-F")
+        .arg(format!(
+            "from={}",
+            from.to_rfc3339_opts(SecondsFormat::Secs, true)
+        ))
+        .arg("-F")
+        .arg(format!(
+            "to={}",
+            to.to_rfc3339_opts(SecondsFormat::Secs, true)
+        ))
+        .output()
+        .map_err(|error| format!("Không chạy được GitHub CLI: {error}"))?;
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if error.is_empty() {
+            "Không thể tải lịch đóng góp GitHub.".into()
+        } else {
+            error
+        });
+    }
+    let response: GhContributionResponse = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("GitHub contribution calendar không hợp lệ: {error}"))?;
+    if !response.errors.is_empty() {
+        return Err(response
+            .errors
+            .into_iter()
+            .map(|error| error.message)
+            .collect::<Vec<_>>()
+            .join(" · "));
+    }
+    let weeks = response
+        .data
+        .ok_or_else(|| "GitHub không trả về lịch đóng góp.".to_string())?
+        .viewer
+        .contributions_collection
+        .contribution_calendar
+        .weeks;
+    Ok(weeks
+        .into_iter()
+        .flat_map(|week| week.contribution_days)
+        .map(|day| ContributionDay {
+            date: day.date,
+            count: day.contribution_count,
         })
         .collect())
 }

@@ -500,6 +500,13 @@ pub struct RemoteActivity {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ContributionDay {
+    pub date: String,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AutoFocusResult {
     pub data: AppData,
     pub focused_repository_ids: Vec<String>,

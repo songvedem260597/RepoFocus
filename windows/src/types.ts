@@ -119,6 +119,17 @@ export interface ScanResult {
   skippedFolders: number;
 }
 
+export interface CloneProgress {
+  phase: "preparing" | "receivingObjects" | "resolvingDeltas" | "checkingOutFiles" | "completed";
+  percentCompleted: number;
+  phasePercentCompleted: number;
+}
+
+export interface ContributionDay {
+  date: string;
+  count: number;
+}
+
 export interface GitActionResult {
   message: string;
   status: GitStatus;
